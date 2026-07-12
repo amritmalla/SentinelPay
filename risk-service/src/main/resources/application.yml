@@ -24,6 +24,12 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
@@ -52,3 +58,11 @@ management:
   tracing:
     sampling:
       probability: ${TRACE_SAMPLE:1.0}
+
+sentinelpay:
+  outbox:
+    relay:
+      fixed-delay-ms: ${OUTBOX_RELAY_DELAY_MS:500}
+      batch-size: ${OUTBOX_RELAY_BATCH_SIZE:50}
+    purge:
+      cron: ${OUTBOX_PURGE_CRON:0 0 3 * * *}
