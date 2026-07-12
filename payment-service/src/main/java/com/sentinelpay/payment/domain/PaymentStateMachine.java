@@ -15,6 +15,8 @@ public final class PaymentStateMachine {
         allow(PaymentStatus.AUTHORIZING, PaymentStatus.AUTHORIZED, PaymentStatus.FAILED);
         allow(PaymentStatus.AUTHORIZED, PaymentStatus.CAPTURED, PaymentStatus.FAILED);
         allow(PaymentStatus.CAPTURED, PaymentStatus.COMPLETED);
+        allow(PaymentStatus.COMPLETED, PaymentStatus.REFUND_PENDING);
+        allow(PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED, PaymentStatus.FAILED);
     }
 
     private PaymentStateMachine() {
@@ -31,7 +33,6 @@ public final class PaymentStateMachine {
         return EnumSet.of(
                 PaymentStatus.BLOCKED,
                 PaymentStatus.IN_REVIEW,
-                PaymentStatus.COMPLETED,
                 PaymentStatus.FAILED,
                 PaymentStatus.REFUNDED).contains(status);
     }

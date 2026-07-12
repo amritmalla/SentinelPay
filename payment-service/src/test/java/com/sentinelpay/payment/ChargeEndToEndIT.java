@@ -9,6 +9,7 @@ import com.sentinelpay.payment.infrastructure.outbox.PaymentOutboxRepository;
 import com.sentinelpay.payment.infrastructure.persistence.IdempotencyKeyRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
+import com.sentinelpay.payment.infrastructure.persistence.RefundRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -65,6 +66,9 @@ class ChargeEndToEndIT {
     @Autowired
     PaymentStatusHistoryRepository paymentStatusHistoryRepository;
 
+    @Autowired
+    RefundRepository refundRepository;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
@@ -76,6 +80,7 @@ class ChargeEndToEndIT {
     @BeforeEach
     void cleanDatabase() {
         outboxRepository.deleteAll();
+        refundRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
         paymentStatusHistoryRepository.deleteAll();
         idempotencyKeyRepository.deleteAll();

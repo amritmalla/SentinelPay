@@ -20,4 +20,17 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
     @Query("select p.id from PaymentEntity p where p.status = com.sentinelpay.payment.domain.PaymentStatus.AUTHORIZING "
             + "and p.updatedAt < :cutoff")
     List<UUID> findStuckAuthorizing(@Param("cutoff") Instant cutoff);
+
+    @Query("select p from PaymentEntity p where p.merchantId = :merchantId "
+            + "and (p.createdAt < :afterCreated "
+            + "   or (p.createdAt = :afterCreated and p.id < :afterId)) "
+            + "order by p.createdAt desc, p.id desc")
+    List<PaymentEntity> pageByMerchant(
+            @Param("merchantId") UUID merchantId,
+            @Param("afterCreated") Instant afterCreated,
+            @Param("afterId") UUID afterId,
+            org.springframework.data.domain.Pageable limit);
+
+    List<PaymentEntity> findByMerchantIdOrderByCreatedAtDescIdDesc(
+            UUID merchantId, org.springframework.data.domain.Pageable limit);
 }

@@ -15,6 +15,8 @@ public interface PaymentProvider {
 
     ProviderOutcome capture(String providerRef);
 
+    ProviderOutcome refund(String providerRef, long amountCents);
+
     record AuthorizeRequest(UUID paymentId, String downstreamKey, long amountCents, String currency) {
     }
 }

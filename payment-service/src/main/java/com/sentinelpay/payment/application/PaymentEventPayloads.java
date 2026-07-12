@@ -40,4 +40,19 @@ public final class PaymentEventPayloads {
         payload.put("reason", reason);
         return payload;
     }
+
+    public static Map<String, Object> paymentRefunded(
+            UUID merchantId,
+            String correlationId,
+            UUID paymentId,
+            UUID refundId,
+            long amountCents) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("merchantId", merchantId.toString());
+        payload.put("correlationId", correlationId);
+        payload.put("paymentId", paymentId.toString());
+        payload.put("refundId", refundId.toString());
+        payload.put("amountCents", amountCents);
+        return payload;
+    }
 }

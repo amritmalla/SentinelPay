@@ -5,11 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.common.error.ApiException;
 import com.sentinelpay.common.error.ErrorCode;
 import com.sentinelpay.payment.application.model.BeginChargeOutcome;
+import com.sentinelpay.payment.application.model.BeginRefundOutcome;
+import com.sentinelpay.payment.application.model.BeginRefundOutcome.RefundContext;
 import com.sentinelpay.payment.application.model.ChargeCommand;
 import com.sentinelpay.payment.application.model.ChargeResult;
 import com.sentinelpay.payment.application.model.DecisionResult;
 import com.sentinelpay.payment.application.model.PaymentDecision;
+import com.sentinelpay.payment.application.model.ProviderOutcome;
 import com.sentinelpay.payment.application.model.ProviderOutcome.Outcome;
+import com.sentinelpay.payment.application.model.RefundCommand;
+import com.sentinelpay.payment.application.model.RefundResult;
 import com.sentinelpay.payment.application.port.RiskEvaluator;
 import com.sentinelpay.payment.domain.PaymentStateMachine;
 import com.sentinelpay.payment.domain.PaymentStatus;
@@ -25,6 +30,8 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
+import com.sentinelpay.payment.infrastructure.persistence.RefundEntity;
+import com.sentinelpay.payment.infrastructure.persistence.RefundRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +56,7 @@ public class PaymentTransactionService {
     private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final PaymentOutboxRepository paymentOutboxRepository;
     private final PaymentStatusHistoryRepository paymentStatusHistoryRepository;
+    private final RefundRepository refundRepository;
     private final ObjectMapper objectMapper;
 
     public PaymentTransactionService(
@@ -57,12 +65,14 @@ public class PaymentTransactionService {
             IdempotencyKeyRepository idempotencyKeyRepository,
             PaymentOutboxRepository paymentOutboxRepository,
             PaymentStatusHistoryRepository paymentStatusHistoryRepository,
+            RefundRepository refundRepository,
             ObjectMapper objectMapper) {
         this.paymentRepository = paymentRepository;
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
         this.paymentOutboxRepository = paymentOutboxRepository;
         this.paymentStatusHistoryRepository = paymentStatusHistoryRepository;
+        this.refundRepository = refundRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -219,6 +229,184 @@ public class PaymentTransactionService {
 
         writeFailedOutbox(command, paymentId, reason);
         return finalizeIdempotency(command, paymentId, PaymentStatus.FAILED, null);
+    }
+
+    @Transactional
+    public BeginRefundOutcome beginRefund(RefundCommand command) {
+        PaymentEntity payment = paymentRepository.findByIdForUpdate(command.paymentId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "payment_not_found"));
+
+        UUID merchantId = payment.getMerchantId();
+        String requestHash = computeRefundRequestHash(command);
+
+        IdempotencyKeyEntity existing = idempotencyKeyRepository
+                .findByIdMerchantIdAndIdIdempotencyKey(merchantId, command.idempotencyKey())
+                .orElse(null);
+
+        if (existing != null) {
+            return resolveExistingRefundKey(existing, requestHash);
+        }
+
+        validateRefundable(payment);
+        long alreadyRefunded = sumRefundedAmount(payment.getId());
+        validateRefundAmount(command.amountCents(), payment.getAmountCents(), alreadyRefunded);
+
+        IdempotencyKeyEntity idempotencyKey = new IdempotencyKeyEntity();
+        idempotencyKey.setId(new IdempotencyKeyId(merchantId, command.idempotencyKey()));
+        idempotencyKey.setRequestHash(requestHash);
+        idempotencyKey.setResponseStatus(RESPONSE_STATUS_IN_FLIGHT);
+        idempotencyKey.setResponseBody("{}");
+        idempotencyKey.setPaymentId(payment.getId());
+        idempotencyKey.setExpiresAt(Instant.now().plus(72, ChronoUnit.HOURS));
+
+        try {
+            idempotencyKeyRepository.saveAndFlush(idempotencyKey);
+        } catch (DataIntegrityViolationException ex) {
+            IdempotencyKeyEntity raced = idempotencyKeyRepository
+                    .findByIdMerchantIdAndIdIdempotencyKey(merchantId, command.idempotencyKey())
+                    .orElseThrow(() -> ex);
+            return resolveExistingRefundKey(raced, requestHash);
+        }
+
+        RefundEntity refund = new RefundEntity();
+        refund.setPaymentId(payment.getId());
+        refund.setAmountCents(command.amountCents());
+        refund.setStatus("REFUND_PENDING");
+        refund.setReason(command.reason());
+        refund = refundRepository.saveAndFlush(refund);
+
+        if (alreadyRefunded + command.amountCents() == payment.getAmountCents()) {
+            transition(payment, PaymentStatus.REFUND_PENDING);
+        }
+
+        String providerRef = paymentAttemptRepository.findByPaymentId(payment.getId()).stream()
+                .filter(attempt -> Outcome.CAPTURED.name().equals(attempt.getOutcome()))
+                .map(PaymentAttemptEntity::getProviderRef)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No captured attempt for payment " + payment.getId()));
+
+        return new BeginRefundOutcome.Started(new RefundContext(
+                refund.getId(),
+                payment.getId(),
+                merchantId,
+                command.amountCents(),
+                command.reason(),
+                providerRef,
+                payment.getProvider(),
+                command.idempotencyKey(),
+                command.correlationId()));
+    }
+
+    @Transactional
+    public RefundResult completeRefund(RefundContext context, ProviderOutcome providerOutcome) {
+        PaymentEntity payment = paymentRepository.findByIdForUpdate(context.paymentId())
+                .orElseThrow(() -> new IllegalStateException("Payment not found: " + context.paymentId()));
+
+        RefundEntity refund = refundRepository.findById(context.refundId())
+                .orElseThrow(() -> new IllegalStateException("Refund not found: " + context.refundId()));
+
+        refund.setStatus("REFUNDED");
+        refund.setProviderRef(providerOutcome.providerRef());
+        refundRepository.save(refund);
+
+        if (payment.getStatus() == PaymentStatus.REFUND_PENDING) {
+            transition(payment, PaymentStatus.REFUNDED);
+        }
+
+        PaymentOutboxEntity outbox = new PaymentOutboxEntity();
+        outbox.setAggregate("payment");
+        outbox.setAggregateId(payment.getId());
+        outbox.setEventType("payment.refunded");
+        outbox.setPayload(serializePayload(PaymentEventPayloads.paymentRefunded(
+                context.merchantId(),
+                context.correlationId(),
+                payment.getId(),
+                refund.getId(),
+                context.amountCents())));
+        paymentOutboxRepository.save(outbox);
+
+        return finalizeRefundIdempotency(context, refund, payment.getStatus());
+    }
+
+    private BeginRefundOutcome resolveExistingRefundKey(IdempotencyKeyEntity existing, String requestHash) {
+        if (!existing.getRequestHash().equals(requestHash)) {
+            throw new ApiException(ErrorCode.IDEMPOTENCY_CONFLICT, "Idempotency-Key reused with a different request");
+        }
+        if (existing.getResponseStatus() == RESPONSE_STATUS_COMPLETE) {
+            return new BeginRefundOutcome.Stored(deserializeRefundResult(existing.getResponseBody()));
+        }
+        throw new ApiException(ErrorCode.CONFLICT, "refund_in_progress");
+    }
+
+    private void validateRefundable(PaymentEntity payment) {
+        if (payment.getStatus() != PaymentStatus.COMPLETED) {
+            throw new ApiException(ErrorCode.CONFLICT, "payment_not_refundable");
+        }
+    }
+
+    private void validateRefundAmount(long requested, long captured, long alreadyRefunded) {
+        if (requested <= 0 || requested > captured - alreadyRefunded) {
+            throw new ApiException(ErrorCode.UNPROCESSABLE_ENTITY, "refund_amount_invalid");
+        }
+    }
+
+    private long sumRefundedAmount(UUID paymentId) {
+        return refundRepository.findByPaymentId(paymentId).stream()
+                .filter(refund -> "REFUND_PENDING".equals(refund.getStatus()) || "REFUNDED".equals(refund.getStatus()))
+                .mapToLong(RefundEntity::getAmountCents)
+                .sum();
+    }
+
+    private RefundResult finalizeRefundIdempotency(
+            RefundContext context, RefundEntity refund, PaymentStatus paymentStatus) {
+        RefundResult result = new RefundResult(
+                refund.getId(),
+                refund.getPaymentId(),
+                refund.getAmountCents(),
+                refund.getStatus(),
+                refund.getReason(),
+                paymentStatus,
+                refund.getCreatedAt());
+
+        IdempotencyKeyEntity key = idempotencyKeyRepository
+                .findByIdMerchantIdAndIdIdempotencyKey(context.merchantId(), context.idempotencyKey())
+                .orElseThrow(() -> new IllegalStateException("Idempotency key not found"));
+
+        key.setPaymentId(context.paymentId());
+        key.setResponseStatus(RESPONSE_STATUS_COMPLETE);
+        key.setResponseBody(serializeRefundResult(result));
+        idempotencyKeyRepository.save(key);
+
+        return result;
+    }
+
+    private String computeRefundRequestHash(RefundCommand command) {
+        String raw = command.paymentId()
+                + "|" + command.amountCents()
+                + "|" + (command.reason() == null ? "" : command.reason());
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 not available", ex);
+        }
+    }
+
+    private String serializeRefundResult(RefundResult result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize refund result", ex);
+        }
+    }
+
+    private RefundResult deserializeRefundResult(String json) {
+        try {
+            return objectMapper.readValue(json, RefundResult.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to deserialize refund result", ex);
+        }
     }
 
     private BeginChargeOutcome resolveExistingKey(IdempotencyKeyEntity existing, String requestHash) {

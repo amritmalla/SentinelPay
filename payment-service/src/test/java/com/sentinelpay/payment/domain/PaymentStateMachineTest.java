@@ -20,7 +20,10 @@ class PaymentStateMachineTest {
             "AUTHORIZING,FAILED",
             "AUTHORIZED,CAPTURED",
             "AUTHORIZED,FAILED",
-            "CAPTURED,COMPLETED"
+            "CAPTURED,COMPLETED",
+            "COMPLETED,REFUND_PENDING",
+            "REFUND_PENDING,REFUNDED",
+            "REFUND_PENDING,FAILED"
     })
     void assertTransition_allowsLegalTransitions(PaymentStatus from, PaymentStatus to) {
         PaymentStateMachine.assertTransition(from, to);
@@ -40,9 +43,10 @@ class PaymentStateMachineTest {
 
     @Test
     void isTerminal_recognizesTerminalStatuses() {
-        assertThat(PaymentStateMachine.isTerminal(PaymentStatus.COMPLETED)).isTrue();
+        assertThat(PaymentStateMachine.isTerminal(PaymentStatus.COMPLETED)).isFalse();
         assertThat(PaymentStateMachine.isTerminal(PaymentStatus.FAILED)).isTrue();
         assertThat(PaymentStateMachine.isTerminal(PaymentStatus.BLOCKED)).isTrue();
+        assertThat(PaymentStateMachine.isTerminal(PaymentStatus.REFUNDED)).isTrue();
         assertThat(PaymentStateMachine.isTerminal(PaymentStatus.AUTHORIZING)).isFalse();
     }
 }

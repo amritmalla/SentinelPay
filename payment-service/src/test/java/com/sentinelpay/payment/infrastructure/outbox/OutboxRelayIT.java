@@ -130,9 +130,16 @@ class OutboxRelayIT {
             consumer.subscribe(List.of("payment.failed"));
             List<EventEnvelope> envelopes = new ArrayList<>();
             long deadline = System.currentTimeMillis() + 15_000;
-            while (envelopes.size() < 2 && System.currentTimeMillis() < deadline) {
+            while (System.currentTimeMillis() < deadline) {
                 ConsumerRecords<String, EventEnvelope> records = consumer.poll(Duration.ofMillis(500));
-                records.forEach(r -> envelopes.add(r.value()));
+                records.forEach(r -> {
+                    if (r.value().eventId().equals(expectedEventId)) {
+                        envelopes.add(r.value());
+                    }
+                });
+                if (envelopes.size() >= 2) {
+                    break;
+                }
             }
             assertThat(envelopes).hasSizeGreaterThanOrEqualTo(2);
             assertThat(envelopes).allMatch(e -> e.eventId().equals(expectedEventId));
