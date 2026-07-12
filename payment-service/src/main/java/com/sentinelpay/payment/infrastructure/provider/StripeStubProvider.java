@@ -7,19 +7,19 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 
 @Component
-public class MockPayProvider extends StatefulProviderAdapter {
+public class StripeStubProvider extends StatefulProviderAdapter {
 
-    public MockPayProvider(ProviderBehavior behavior) {
+    public StripeStubProvider(ProviderBehavior behavior) {
         super(behavior);
     }
 
     @Override
     public Provider id() {
-        return Provider.MOCKPAY;
+        return Provider.STRIPE;
     }
 
     @Override
     protected String newRef() {
-        return "mockpay_" + UUID.randomUUID();
+        return "stripe_" + UUID.randomUUID();
     }
 }

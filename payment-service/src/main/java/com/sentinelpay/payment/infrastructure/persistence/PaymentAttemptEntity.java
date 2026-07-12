@@ -34,6 +34,9 @@ public class PaymentAttemptEntity {
     @Column(name = "provider_ref")
     private String providerRef;
 
+    @Column(name = "downstream_key")
+    private String downstreamKey;
+
     @Column(name = "latency_ms")
     private Integer latencyMs;
 
@@ -82,6 +85,14 @@ public class PaymentAttemptEntity {
 
     public void setProviderRef(String providerRef) {
         this.providerRef = providerRef;
+    }
+
+    public String getDownstreamKey() {
+        return downstreamKey;
+    }
+
+    public void setDownstreamKey(String downstreamKey) {
+        this.downstreamKey = downstreamKey;
     }
 
     public Integer getLatencyMs() {

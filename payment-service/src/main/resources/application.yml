@@ -58,10 +58,16 @@ management:
 sentinelpay:
   risk:
     grpc:
+      # 100 ms deadline per call; GrpcRiskEvaluator retries once on UNAVAILABLE/DEADLINE_EXCEEDED (~200 ms worst case).
       target: ${RISK_GRPC_TARGET:localhost:9091}
+      deadline-ms: ${RISK_GRPC_DEADLINE_MS:100}
   outbox:
     relay:
       fixed-delay-ms: ${OUTBOX_RELAY_DELAY_MS:500}
       batch-size: ${OUTBOX_RELAY_BATCH_SIZE:50}
     purge:
       cron: ${OUTBOX_PURGE_CRON:0 0 3 * * *}
+  reconciliation:
+    sweep:
+      delay-ms: ${RECONCILIATION_SWEEP_DELAY_MS:30000}
+      cutoff-seconds: ${RECONCILIATION_SWEEP_CUTOFF_SECONDS:30}

@@ -11,12 +11,10 @@ public interface PaymentProvider {
 
     ProviderOutcome authorize(AuthorizeRequest request);
 
+    ProviderOutcome reconcile(String downstreamKey);
+
     ProviderOutcome capture(String providerRef);
 
-    record AuthorizeRequest(
-            UUID paymentId,
-            String idempotencyKey,
-            long amountCents,
-            String currency) {
+    record AuthorizeRequest(UUID paymentId, String downstreamKey, long amountCents, String currency) {
     }
 }
