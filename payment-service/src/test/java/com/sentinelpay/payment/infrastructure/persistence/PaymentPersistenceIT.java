@@ -32,6 +32,9 @@ class PaymentPersistenceIT {
     @Autowired
     PaymentStatusHistoryRepository paymentStatusHistoryRepository;
 
+    @Autowired
+    RefundRepository refundRepository;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
@@ -42,6 +45,7 @@ class PaymentPersistenceIT {
 
     @BeforeEach
     void cleanDatabase() {
+        refundRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
         paymentStatusHistoryRepository.deleteAll();
         idempotencyKeyRepository.deleteAll();

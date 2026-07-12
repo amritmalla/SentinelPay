@@ -17,6 +17,7 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
+import com.sentinelpay.payment.infrastructure.persistence.RefundRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,9 @@ class ChargeServiceIT {
     @Autowired
     PaymentStatusHistoryRepository paymentStatusHistoryRepository;
 
+    @Autowired
+    RefundRepository refundRepository;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
@@ -73,6 +77,7 @@ class ChargeServiceIT {
     @BeforeEach
     void cleanDatabase() {
         paymentOutboxRepository.deleteAll();
+        refundRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
         paymentStatusHistoryRepository.deleteAll();
         idempotencyKeyRepository.deleteAll();

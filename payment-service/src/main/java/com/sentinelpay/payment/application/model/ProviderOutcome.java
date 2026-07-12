@@ -8,6 +8,7 @@ public record ProviderOutcome(Outcome outcome, String providerRef, long latencyM
         HARD_FAIL,
         RETRYABLE,
         AMBIGUOUS_TIMEOUT,
-        NOT_AUTHORIZED
+        NOT_AUTHORIZED,
+        REFUNDED
     }
 }

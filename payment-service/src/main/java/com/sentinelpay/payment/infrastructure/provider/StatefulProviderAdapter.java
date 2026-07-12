@@ -19,8 +19,10 @@ abstract class StatefulProviderAdapter implements PaymentProvider, ProviderCount
     private final ProviderBehavior behavior;
     private final Map<String, String> authStore = new ConcurrentHashMap<>();
     private final Set<String> capturedRefs = ConcurrentHashMap.newKeySet();
+    private final Set<String> refundedRefs = ConcurrentHashMap.newKeySet();
     private final AtomicInteger authorizationCount = new AtomicInteger();
     private final AtomicInteger captureCount = new AtomicInteger();
+    private final AtomicInteger refundCount = new AtomicInteger();
 
     protected StatefulProviderAdapter(ProviderBehavior behavior) {
         this.behavior = behavior;
@@ -80,6 +82,20 @@ abstract class StatefulProviderAdapter implements PaymentProvider, ProviderCount
     }
 
     @Override
+    public ProviderOutcome refund(String providerRef, long amountCents) {
+        long start = System.nanoTime();
+        if (refundedRefs.add(providerRef + ":" + amountCents)) {
+            refundCount.incrementAndGet();
+        }
+        return timed(start, Outcome.REFUNDED, providerRef);
+    }
+
+    @Override
+    public int refundCount() {
+        return refundCount.get();
+    }
+
+    @Override
     public int authorizationCount() {
         return authorizationCount.get();
     }
@@ -93,8 +109,10 @@ abstract class StatefulProviderAdapter implements PaymentProvider, ProviderCount
     public void resetCounters() {
         authorizationCount.set(0);
         captureCount.set(0);
+        refundCount.set(0);
         authStore.clear();
         capturedRefs.clear();
+        refundedRefs.clear();
     }
 
     protected abstract String newRef();

@@ -61,6 +61,8 @@ sentinelpay:
       # 100 ms deadline per call; GrpcRiskEvaluator retries once on UNAVAILABLE/DEADLINE_EXCEEDED (~200 ms worst case).
       target: ${RISK_GRPC_TARGET:localhost:9091}
       deadline-ms: ${RISK_GRPC_DEADLINE_MS:100}
+    http:
+      base-url: ${RISK_HTTP_BASE_URL:http://localhost:8083}
   outbox:
     relay:
       fixed-delay-ms: ${OUTBOX_RELAY_DELAY_MS:500}

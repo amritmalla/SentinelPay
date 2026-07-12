@@ -6,5 +6,7 @@ public interface ProviderCounters {
 
     int captureCount();
 
+    int refundCount();
+
     void resetCounters();
 }
