@@ -4,33 +4,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
-/**
- * Baseline integration test: boots the full application context against a real PostgreSQL
- * (Testcontainers), exercising Flyway migration, JPA, security, and observability wiring.
- */
 @SpringBootTest
-@Testcontainers
 class PaymentServiceApplicationTests {
 
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
-
-    @Container
-    static KafkaContainer kafka =
-            new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
-
     @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
+        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
+        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
     }
 
     @Test

@@ -1,7 +1,7 @@
 package com.sentinelpay.payment.infrastructure.persistence;
 
+import com.sentinelpay.payment.PaymentTestContainers;
 import com.sentinelpay.payment.domain.PaymentStatus;
-import com.sentinelpay.payment.infrastructure.persistence.IdempotencyKeyId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,11 +9,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -23,15 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
-@Testcontainers
 class PaymentPersistenceIT {
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
-
-    @Container
-    static KafkaContainer kafka =
-            new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
 
     @Autowired
     PaymentRepository paymentRepository;
@@ -39,16 +26,24 @@ class PaymentPersistenceIT {
     @Autowired
     IdempotencyKeyRepository idempotencyKeyRepository;
 
+    @Autowired
+    PaymentAttemptRepository paymentAttemptRepository;
+
+    @Autowired
+    PaymentStatusHistoryRepository paymentStatusHistoryRepository;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
+        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
+        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
     }
 
     @BeforeEach
     void cleanDatabase() {
+        paymentAttemptRepository.deleteAll();
+        paymentStatusHistoryRepository.deleteAll();
         idempotencyKeyRepository.deleteAll();
         paymentRepository.deleteAll();
     }
@@ -91,5 +86,51 @@ class PaymentPersistenceIT {
 
         assertThatThrownBy(() -> idempotencyKeyRepository.saveAndFlush(second))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void paymentAttempt_startedWithDownstreamKey_roundTrips() {
+        PaymentEntity payment = new PaymentEntity();
+        payment.setMerchantId(UUID.randomUUID());
+        payment.setStatus(PaymentStatus.CREATED);
+        payment.setAmountCents(2500);
+        payment.setCurrency("USD");
+        payment = paymentRepository.saveAndFlush(payment);
+
+        PaymentAttemptEntity attempt = new PaymentAttemptEntity();
+        attempt.setPaymentId(payment.getId());
+        attempt.setAttemptNumber((short) 1);
+        attempt.setProvider("mockpay");
+        attempt.setOutcome("STARTED");
+        attempt.setDownstreamKey("pay:mockpay:1");
+        attempt = paymentAttemptRepository.saveAndFlush(attempt);
+
+        PaymentAttemptEntity loaded = paymentAttemptRepository.findById(attempt.getId()).orElseThrow();
+        assertThat(loaded.getOutcome()).isEqualTo("STARTED");
+        assertThat(loaded.getDownstreamKey()).isEqualTo("pay:mockpay:1");
+    }
+
+    @Test
+    void paymentEntity_updatedAtAdvancesOnModification() throws InterruptedException {
+        PaymentEntity payment = new PaymentEntity();
+        payment.setMerchantId(UUID.randomUUID());
+        payment.setStatus(PaymentStatus.CREATED);
+        payment.setAmountCents(2500);
+        payment.setCurrency("USD");
+
+        PaymentEntity saved = paymentRepository.saveAndFlush(payment);
+        PaymentEntity loaded = paymentRepository.findById(saved.getId()).orElseThrow();
+        Instant createdAt = loaded.getCreatedAt();
+        Instant firstUpdatedAt = loaded.getUpdatedAt();
+        assertThat(createdAt).isNotNull();
+        assertThat(firstUpdatedAt).isNotNull();
+
+        Thread.sleep(50);
+        loaded.setStatus(PaymentStatus.RISK_EVALUATED);
+        paymentRepository.saveAndFlush(loaded);
+        PaymentEntity reloaded = paymentRepository.findById(loaded.getId()).orElseThrow();
+
+        assertThat(reloaded.getUpdatedAt()).isAfter(firstUpdatedAt);
+        assertThat(reloaded.getUpdatedAt()).isAfterOrEqualTo(reloaded.getCreatedAt());
     }
 }

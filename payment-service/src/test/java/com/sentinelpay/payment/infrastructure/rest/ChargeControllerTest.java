@@ -1,6 +1,8 @@
 package com.sentinelpay.payment.infrastructure.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sentinelpay.common.error.ApiException;
+import com.sentinelpay.common.error.ErrorCode;
 import com.sentinelpay.common.error.GlobalExceptionHandler;
 import com.sentinelpay.payment.application.ChargeService;
 import com.sentinelpay.payment.application.model.ChargeResult;
@@ -95,5 +97,49 @@ class ChargeControllerTest {
                                 }
                                 """.formatted(merchantId)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void charge_idempotencyConflict_returns409() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+
+        when(chargeService.charge(any())).thenThrow(new ApiException(
+                ErrorCode.IDEMPOTENCY_CONFLICT, "Idempotency-Key reused with a different request"));
+
+        mockMvc.perform(post("/api/v1/payments/charge")
+                        .header("Idempotency-Key", "demo-conflict")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "merchant_id": "%s",
+                                  "amount_cents": 2500,
+                                  "currency": "USD",
+                                  "customer_email": "buyer@example.com"
+                                }
+                                """.formatted(merchantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_CONFLICT"));
+    }
+
+    @Test
+    void charge_inFlightDuplicate_returns409() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+
+        when(chargeService.charge(any())).thenThrow(new ApiException(ErrorCode.CONFLICT, "charge_in_progress"));
+
+        mockMvc.perform(post("/api/v1/payments/charge")
+                        .header("Idempotency-Key", "demo-in-flight")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "merchant_id": "%s",
+                                  "amount_cents": 2500,
+                                  "currency": "USD",
+                                  "customer_email": "buyer@example.com"
+                                }
+                                """.formatted(merchantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONFLICT"))
+                .andExpect(jsonPath("$.error.message").value("charge_in_progress"));
     }
 }

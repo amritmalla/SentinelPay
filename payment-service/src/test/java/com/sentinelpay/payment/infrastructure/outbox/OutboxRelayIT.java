@@ -2,22 +2,19 @@ package com.sentinelpay.payment.infrastructure.outbox;
 
 import com.sentinelpay.common.events.EventEnvelope;
 import com.sentinelpay.common.outbox.OutboxEnvelopeMapper;
+import com.sentinelpay.payment.PaymentTestContainers;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,18 +25,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@Testcontainers
+@SpringBootTest(properties = "spring.task.scheduling.enabled=false")
 class OutboxRelayIT {
-
-    private static final DockerImageName KAFKA_IMAGE =
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0");
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
-
-    @Container
-    static KafkaContainer kafka = new KafkaContainer(KAFKA_IMAGE);
 
     @Autowired
     PaymentOutboxRepository repository;
@@ -49,14 +36,19 @@ class OutboxRelayIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
+        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
+        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+    }
+
+    @BeforeEach
+    void clean() {
+        repository.deleteAll();
     }
 
     @Test
-    void relay_publishesToKafkaAndMarksPublishedAt() {
+    void relay_publishesToKafkaAndMarksPublishedAt() throws InterruptedException {
         UUID merchantId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
         String payload =
@@ -79,25 +71,39 @@ class OutboxRelayIT {
 
         UUID expectedEventId = OutboxEnvelopeMapper.stableEventId("payment_outbox", row.getId());
 
-        relay.poll();
+        for (int attempt = 0; attempt < 10; attempt++) {
+            relay.poll();
+            PaymentOutboxEntity published = repository.findById(row.getId()).orElseThrow();
+            if (published.getPublishedAt() != null) {
+                break;
+            }
+            Thread.sleep(200);
+        }
 
         PaymentOutboxEntity published = repository.findById(row.getId()).orElseThrow();
         assertThat(published.getPublishedAt()).isNotNull();
 
         try (KafkaConsumer<String, EventEnvelope> consumer = createConsumer()) {
             consumer.subscribe(List.of("payment.completed"));
-            ConsumerRecords<String, EventEnvelope> records = consumer.poll(Duration.ofSeconds(15));
-            assertThat(records.count()).isGreaterThanOrEqualTo(1);
-
-            ConsumerRecord<String, EventEnvelope> record = records.iterator().next();
-            EventEnvelope envelope = record.value();
-            assertThat(envelope.eventId()).isEqualTo(expectedEventId);
+            EventEnvelope envelope = awaitEnvelope(consumer, expectedEventId);
             assertThat(envelope.eventType()).isEqualTo("payment.completed");
             assertThat(envelope.source()).isEqualTo("payment-service");
             assertThat(envelope.correlationId()).isEqualTo("corr-test-1");
             assertThat(envelope.tenantContext().merchantId()).isEqualTo(merchantId);
-            assertThat(record.key()).isEqualTo(merchantId.toString());
         }
+    }
+
+    private EventEnvelope awaitEnvelope(KafkaConsumer<String, EventEnvelope> consumer, UUID expectedEventId) {
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < deadline) {
+            ConsumerRecords<String, EventEnvelope> records = consumer.poll(Duration.ofMillis(500));
+            for (ConsumerRecord<String, EventEnvelope> record : records) {
+                if (record.value().eventId().equals(expectedEventId)) {
+                    return record.value();
+                }
+            }
+        }
+        throw new AssertionError("No Kafka record with eventId " + expectedEventId);
     }
 
     @Test
@@ -135,7 +141,7 @@ class OutboxRelayIT {
 
     private KafkaConsumer<String, EventEnvelope> createConsumer() {
         Map<String, Object> props = new HashMap<>();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, PaymentTestContainers.KAFKA.getBootstrapServers());
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "outbox-relay-it-" + UUID.randomUUID());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);

@@ -7,6 +7,7 @@ public record ProviderOutcome(Outcome outcome, String providerRef, long latencyM
         CAPTURED,
         HARD_FAIL,
         RETRYABLE,
-        AMBIGUOUS_TIMEOUT
+        AMBIGUOUS_TIMEOUT,
+        NOT_AUTHORIZED
     }
 }
