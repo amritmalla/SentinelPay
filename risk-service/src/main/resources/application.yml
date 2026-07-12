@@ -63,6 +63,10 @@ sentinelpay:
   risk:
     grpc:
       port: ${RISK_GRPC_PORT:9091}
+    scoring:
+      block-threshold: ${RISK_BLOCK_THRESHOLD:0.70}
+      review-threshold: ${RISK_REVIEW_THRESHOLD:0.30}
+      high-alert-threshold: ${RISK_HIGH_ALERT_THRESHOLD:0.90}
   outbox:
     relay:
       fixed-delay-ms: ${OUTBOX_RELAY_DELAY_MS:500}
