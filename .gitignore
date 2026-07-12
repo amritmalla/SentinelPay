@@ -157,3 +157,4 @@ $RECYCLE.BIN/
 # =============================================================================
 .claude/settings.local.json
 .claude/*.local.json
+docs/superpowers/*
