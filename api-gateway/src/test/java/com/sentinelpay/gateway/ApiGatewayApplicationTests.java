@@ -2,13 +2,26 @@ package com.sentinelpay.gateway;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
-/**
- * Baseline test: boots the reactive gateway application context (routing + security + observability).
- * No external dependencies are contacted at context load, so no Testcontainers are required.
- */
 @SpringBootTest
+@Testcontainers
 class ApiGatewayApplicationTests {
+
+    @Container
+    static GenericContainer<?> redis =
+            new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
+
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", redis::getHost);
+        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+    }
 
     @Test
     void contextLoads() {
