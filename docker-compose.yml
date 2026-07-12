@@ -1,0 +1,71 @@
+# Local development infrastructure for SentinelPay.
+# Service shells build and test with Testcontainers (their own Postgres); this compose
+# file provides the shared dependencies used once feature wiring (Kafka, Redis, mail) lands.
+services:
+  postgres-payments:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: sentinelpay_payments
+      POSTGRES_USER: sentinelpay
+      POSTGRES_PASSWORD: sentinelpay_secret
+    ports: ["5434:5432"]
+    volumes: ["payments-data:/var/lib/postgresql/data"]
+
+  postgres-risk:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: sentinelpay_risk
+      POSTGRES_USER: sentinelpay
+      POSTGRES_PASSWORD: sentinelpay_secret
+    ports: ["5435:5432"]
+    volumes: ["risk-data:/var/lib/postgresql/data"]
+
+  postgres-provider:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: sentinelpay_provider
+      POSTGRES_USER: sentinelpay
+      POSTGRES_PASSWORD: sentinelpay_secret
+    ports: ["5436:5432"]
+    volumes: ["provider-data:/var/lib/postgresql/data"]
+
+  postgres-notifications:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: sentinelpay_notifications
+      POSTGRES_USER: sentinelpay
+      POSTGRES_PASSWORD: sentinelpay_secret
+    ports: ["5437:5432"]
+    volumes: ["notifications-data:/var/lib/postgresql/data"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on: [zookeeper]
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  mailhog:
+    image: mailhog/mailhog
+    ports: ["1025:1025", "8025:8025"]
+
+volumes:
+  payments-data:
+  risk-data:
+  provider-data:
+  notifications-data:

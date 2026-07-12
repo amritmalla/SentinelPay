@@ -1,0 +1,8 @@
+# Local development: verbose logging (console via logback dev profile), full health detail, full trace sampling.
+logging:
+  level:
+    com.sentinelpay: DEBUG
+management:
+  endpoint:
+    health:
+      show-details: always

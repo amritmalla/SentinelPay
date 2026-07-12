@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package sentinelpay.fraud;
+
+option java_multiple_files = true;
+option java_package = "com.sentinelpay.proto.fraud";
+option java_outer_classname = "FraudScoringProto";
+
+// Risk evaluation on the synchronous payment critical path (ADR-0003).
+// Payment Service is the client; Risk Service is the server.
+service RiskScoringService {
+  rpc ScoreTransaction (RiskScoreRequest) returns (RiskScoreResponse);
+}
+
+message RiskScoreRequest {
+  string transaction_id = 1;
+  string merchant_id = 2;
+  int64 amount_cents = 3;
+  string currency = 4;
+  string customer_email = 5;
+  string merchant_category = 6;
+  string card_country = 7;
+  string merchant_country = 8;
+  int64 timestamp_epoch_ms = 9;
+}
+
+message RiskScoreResponse {
+  double score = 1;                       // 0.0 - 1.0
+  string recommendation = 2;              // APPROVE | REVIEW | BLOCK
+  repeated string contributing_factors = 3;
+  string model_version = 4;               // e.g. rules-v1.0.0
+  bool fallback_used = 5;
+}

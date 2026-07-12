@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: SentinelPay Public API
+  version: "1.0.0"
+  license:
+    name: MIT
+    url: "https://opensource.org/licenses/MIT"
+  description: >
+    Public merchant + operations API for SentinelPay v1 (Adaptive Payment Intelligence Platform,
+    v1 wedge: resilient multi-provider routing & failover). Served via the API Gateway.
+    A charge always creates a Payment resource; the business outcome is carried in `status`.
+    Backend payload keys are snake_case. Timestamps are ISO-8601 UTC. Identifiers are UUIDv4.
+
+servers:
+  - url: "http://localhost:8080/api/v1"
+    description: "Local (Docker Compose)"
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: payments
+    description: Charge, retrieve, and refund payments.
+  - name: fraud-assessments
+    description: Risk assessment audit (operations).
+  - name: providers
+    description: Provider health (operations).
+  - name: reconciliation-runs
+    description: Manual reconciliation trigger (operations).
+  - name: webhooks
+    description: Inbound provider webhooks.
+
+paths:
+  /payments:
+    post:
+      tags: [payments]
+      operationId: createPayment
+      summary: Create (charge) a payment
+      description: >
+        Risk-evaluates, decides (approve/review/block), and on approval routes the charge to a
+        healthy provider with in-request failover. Always creates a Payment; `status` carries the
+        outcome. Requires an Idempotency-Key; replaying the same key returns the original Payment.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChargeRequest"
+            example:
+              amount_cents: 4200
+              currency: "USD"
+              customer_email: "buyer@example.com"
+              merchant_category: "retail"
+              card_country: "US"
+      responses:
+        "201":
+          description: Payment created (see `status` for outcome).
+          headers:
+            Location:
+              description: URL of the created payment.
+              schema: { type: string }
+            X-RateLimit-Limit: { $ref: "#/components/headers/XRateLimitLimit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/XRateLimitRemaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/XRateLimitReset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+              example:
+                payment_id: "6f3a1c2e-0b7d-4e9a-9c11-2a4b6d8e0f12"
+                merchant_id: "b1a2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+                status: "COMPLETED"
+                amount_cents: 4200
+                currency: "USD"
+                provider: "stripe"
+                risk: { score: 0.12, recommendation: "APPROVE", model_version: "rules-v1.0.0" }
+                trail_id: "6f3a1c2e-0b7d-4e9a-9c11-2a4b6d8e0f12"
+                created_at: "2026-07-12T10:00:00Z"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamUnavailable" }
+      x-rate-limit:
+        requests: 10
+        per: second
+        scope: user
+    get:
+      tags: [payments]
+      operationId: listPayments
+      summary: List payments (merchant-scoped)
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/PaymentStatus" }
+      responses:
+        "200":
+          description: A page of payments.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentPage" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /payments/{payment_id}:
+    parameters:
+      - $ref: "#/components/parameters/PaymentId"
+    get:
+      tags: [payments]
+      operationId: getPayment
+      summary: Retrieve a payment
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /payments/{payment_id}/refunds:
+    parameters:
+      - $ref: "#/components/parameters/PaymentId"
+    post:
+      tags: [payments]
+      operationId: createRefund
+      summary: Refund a completed payment
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefundRequest" }
+            example:
+              amount_cents: 4200
+              reason: "customer_request"
+      responses:
+        "201":
+          description: Refund created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refund" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /payments/{payment_id}/trail:
+    parameters:
+      - $ref: "#/components/parameters/PaymentId"
+    get:
+      tags: [payments]
+      operationId: getPaymentTrail
+      summary: Get the end-to-end decision trail (risk factors + provider attempts)
+      responses:
+        "200":
+          description: Composed decision trail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DecisionTrail" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /fraud-assessments/{transaction_id}:
+    parameters:
+      - name: transaction_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [fraud-assessments]
+      operationId: getFraudAssessment
+      summary: Retrieve the risk assessment for a transaction (operations)
+      responses:
+        "200":
+          description: The risk assessment.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RiskAssessment" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /providers/health:
+    get:
+      tags: [providers]
+      operationId: getProviderHealth
+      summary: Current per-provider health (operations)
+      responses:
+        "200":
+          description: Provider health snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProviderHealth" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /reconciliation-runs:
+    post:
+      tags: [reconciliation-runs]
+      operationId: createReconciliationRun
+      summary: Trigger a reconciliation sweep of in-flight payments (operations)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Reconciliation run accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run_id, status]
+                properties:
+                  run_id: { type: string, format: uuid }
+                  status: { type: string, enum: [ACCEPTED] }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /webhooks/stripe:
+    post:
+      tags: [webhooks]
+      operationId: receiveStripeWebhook
+      summary: Inbound Stripe webhook (signature verification deferred in v1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "204":
+          description: Accepted (idempotent; duplicates are no-ops).
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PaymentId:
+      name: payment_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    XRateLimitLimit:
+      description: Requests permitted in the current window.
+      schema: { type: integer }
+    XRateLimitRemaining:
+      description: Requests remaining in the current window.
+      schema: { type: integer }
+    XRateLimitReset:
+      description: Unix timestamp (seconds) when the window resets.
+      schema: { type: integer }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: string }
+
+  responses:
+    ValidationFailed:
+      description: Request failed schema validation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: "VALIDATION_FAILED"
+              message: "amount_cents must be a positive integer"
+              details: [{ field: "amount_cents", issue: "must be > 0" }]
+              request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
+    Unauthenticated:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "UNAUTHENTICATED", message: "Missing or invalid token", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    Forbidden:
+      description: Authenticated but not permitted.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "FORBIDDEN", message: "Not permitted for this resource", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    NotFound:
+      description: Resource does not exist.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "RESOURCE_NOT_FOUND", message: "Payment not found", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    Conflict:
+      description: State conflict (illegal transition or idempotency-key reuse with a different body).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "IDEMPOTENCY_CONFLICT", message: "Idempotency-Key reused with a different body", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    Unprocessable:
+      description: Semantically invalid (e.g., refund exceeds captured amount).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "REFUND_EXCEEDS_CAPTURED", message: "Refund amount exceeds remaining captured amount", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+        X-RateLimit-Limit: { $ref: "#/components/headers/XRateLimitLimit" }
+        X-RateLimit-Remaining: { $ref: "#/components/headers/XRateLimitRemaining" }
+        X-RateLimit-Reset: { $ref: "#/components/headers/XRateLimitReset" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "RATE_LIMITED", message: "Rate limit exceeded", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+    UpstreamUnavailable:
+      description: A required dependency is unavailable and could not be recovered.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error: { code: "UPSTREAM_UNAVAILABLE", message: "No payment provider is currently available", details: [], request_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" }
+
+  schemas:
+    PaymentStatus:
+      type: string
+      enum: [CREATED, RISK_EVALUATED, BLOCKED, IN_REVIEW, AUTHORIZING, AUTHORIZED, CAPTURED, COMPLETED, FAILED, REFUND_PENDING, REFUNDED]
+    Currency:
+      type: string
+      pattern: "^[A-Z]{3}$"
+      description: ISO-4217 currency code.
+    ChargeRequest:
+      type: object
+      required: [amount_cents, currency, customer_email]
+      properties:
+        amount_cents: { type: integer, minimum: 1, description: Amount in minor units. }
+        currency: { $ref: "#/components/schemas/Currency" }
+        customer_email: { type: string, format: email }
+        merchant_category: { type: string, maxLength: 64 }
+        card_country: { type: string, pattern: "^[A-Z]{2}$", description: ISO-3166-1 alpha-2. }
+      additionalProperties: false
+    RefundRequest:
+      type: object
+      required: [amount_cents]
+      properties:
+        amount_cents: { type: integer, minimum: 1 }
+        reason: { type: string, maxLength: 128 }
+      additionalProperties: false
+    RiskSummary:
+      type: object
+      required: [score, recommendation, model_version]
+      properties:
+        score: { type: number, minimum: 0, maximum: 1 }
+        recommendation: { type: string, enum: [APPROVE, REVIEW, BLOCK] }
+        model_version: { type: string }
+        fallback_used: { type: boolean }
+    Payment:
+      type: object
+      required: [payment_id, merchant_id, status, amount_cents, currency, created_at]
+      properties:
+        payment_id: { type: string, format: uuid }
+        merchant_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        amount_cents: { type: integer }
+        currency: { $ref: "#/components/schemas/Currency" }
+        provider: { type: [string, "null"], enum: [stripe, mockpay, null] }
+        risk: { $ref: "#/components/schemas/RiskSummary" }
+        trail_id: { type: string, format: uuid }
+        failure_reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    PaymentPage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Payment" }
+        page:
+          type: object
+          required: [next_cursor, limit]
+          properties:
+            next_cursor: { type: [string, "null"] }
+            limit: { type: integer }
+    Refund:
+      type: object
+      required: [refund_id, payment_id, amount_cents, status, created_at]
+      properties:
+        refund_id: { type: string, format: uuid }
+        payment_id: { type: string, format: uuid }
+        amount_cents: { type: integer }
+        status: { type: string, enum: [REFUND_PENDING, REFUNDED, FAILED] }
+        reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    PaymentAttempt:
+      type: object
+      required: [attempt_number, provider, outcome]
+      properties:
+        attempt_number: { type: integer, minimum: 1 }
+        provider: { type: string, enum: [stripe, mockpay] }
+        outcome: { type: string, enum: [AUTHORIZED, HARD_FAIL, RETRYABLE, AMBIGUOUS_TIMEOUT, RECONCILED] }
+        provider_ref: { type: [string, "null"] }
+        latency_ms: { type: integer }
+    RiskAssessment:
+      type: object
+      required: [transaction_id, score, recommendation, contributing_factors, model_version, created_at]
+      properties:
+        transaction_id: { type: string, format: uuid }
+        score: { type: number, minimum: 0, maximum: 1 }
+        recommendation: { type: string, enum: [APPROVE, REVIEW, BLOCK] }
+        contributing_factors:
+          type: array
+          items: { type: string }
+        model_version: { type: string }
+        fallback_used: { type: boolean }
+        created_at: { type: string, format: date-time }
+    DecisionTrail:
+      type: object
+      required: [payment_id, status, risk, attempts]
+      properties:
+        payment_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        risk: { $ref: "#/components/schemas/RiskAssessment" }
+        attempts:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentAttempt" }
+    ProviderHealth:
+      type: object
+      required: [provider, state, success_rate]
+      properties:
+        provider: { type: string, enum: [stripe, mockpay] }
+        state: { type: string, enum: [HEALTHY, DEGRADED, UNAVAILABLE] }
+        success_rate: { type: number, minimum: 0, maximum: 1 }
+        p95_latency_ms: { type: integer }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: { $ref: "#/components/schemas/Error" }
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string, description: SCREAMING_SNAKE_CASE machine-readable code. }
+        message: { type: string, description: Client-safe human-readable message. }
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        request_id: { type: string, description: Correlation id (equals X-Correlation-Id). }

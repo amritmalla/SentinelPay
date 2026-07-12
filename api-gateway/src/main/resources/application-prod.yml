@@ -1,0 +1,17 @@
+# Production: JSON logs (logback non-dev profile), secured actuator credentials required, sampled tracing.
+spring:
+  security:
+    user:
+      name: ${MANAGEMENT_USER:admin}
+      password: ${MANAGEMENT_PASSWORD}
+management:
+  endpoint:
+    health:
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: ${TRACE_SAMPLE:0.1}
+logging:
+  level:
+    root: INFO
+    com.sentinelpay: INFO
