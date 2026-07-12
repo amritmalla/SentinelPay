@@ -12,19 +12,26 @@ import java.util.concurrent.TimeUnit;
 public class GrpcServerLifecycle implements SmartLifecycle {
 
     private final int port;
+    private final RiskScoringServer riskScoringServer;
     private Server server;
 
-    public GrpcServerLifecycle(@Value("${sentinelpay.risk.grpc.port}") int port) {
+    public GrpcServerLifecycle(
+            @Value("${sentinelpay.risk.grpc.port}") int port, RiskScoringServer riskScoringServer) {
         this.port = port;
-        this.server = ServerBuilder.forPort(port)
-                .addService(new RiskScoringServer())
-                .build();
+        this.riskScoringServer = riskScoringServer;
+    }
+
+    public int boundPort() {
+        return server != null ? server.getPort() : port;
     }
 
     @Override
     public void start() {
         try {
-            server.start();
+            server = ServerBuilder.forPort(port)
+                    .addService(riskScoringServer)
+                    .build()
+                    .start();
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to start gRPC server on port " + port, ex);
         }
