@@ -38,6 +38,26 @@
         <module>notification-service</module>
     </modules>
 
+    <build>
+        <plugins>
+            <!-- Run *IT integration tests (Testcontainers) in the integration-test/verify phases.
+                 spring-boot-starter-parent only manages failsafe's version; without this execution
+                 `mvn verify` silently skips every *IT. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
