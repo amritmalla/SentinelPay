@@ -20,6 +20,20 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:notification-service}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: manual
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
@@ -48,3 +62,11 @@ management:
   tracing:
     sampling:
       probability: ${TRACE_SAMPLE:1.0}
+
+sentinelpay:
+  notification:
+    from: ${NOTIFICATION_FROM:no-reply@sentinelpay.local}
+  kafka:
+    dlt:
+      retries: ${KAFKA_DLT_RETRIES:3}
+      backoff-ms: ${KAFKA_DLT_BACKOFF_MS:1000}
