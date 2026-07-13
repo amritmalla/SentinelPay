@@ -9,6 +9,7 @@ import com.sentinelpay.risk.application.port.VelocityStore;
 import com.sentinelpay.risk.domain.scoring.RiskResult;
 import com.sentinelpay.risk.domain.scoring.RiskScorer;
 import com.sentinelpay.risk.domain.scoring.ScoringInput;
+import com.sentinelpay.risk.infrastructure.metrics.RiskMetrics;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentEntity;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -24,24 +25,33 @@ public class RiskAssessmentService {
     private final RiskScorer riskScorer;
     private final VelocityStore velocityStore;
     private final ObjectMapper objectMapper;
+    private final RiskMetrics riskMetrics;
 
     public RiskAssessmentService(
             RiskAssessmentRepository riskAssessmentRepository,
             RiskAssessmentWriter riskAssessmentWriter,
             RiskScorer riskScorer,
             VelocityStore velocityStore,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            RiskMetrics riskMetrics) {
         this.riskAssessmentRepository = riskAssessmentRepository;
         this.riskAssessmentWriter = riskAssessmentWriter;
         this.riskScorer = riskScorer;
         this.velocityStore = velocityStore;
         this.objectMapper = objectMapper;
+        this.riskMetrics = riskMetrics;
     }
 
     public RiskResult assess(ScoringInput input) {
         return riskAssessmentRepository
                 .findByTransactionId(input.transactionId())
-                .map(this::toResult)
+                .map(entity -> {
+                    if (entity.isFallbackUsed()) {
+                        riskMetrics.recordFallback();
+                    }
+                    riskMetrics.recordDecision(entity.getRecommendation());
+                    return toResult(entity);
+                })
                 .orElseGet(() -> scoreAndPersist(input));
     }
 
@@ -62,6 +72,7 @@ public class RiskAssessmentService {
         }
 
         velocityStore.increment(input.customerEmail(), VelocityWindow.ONE_HOUR);
+        riskMetrics.recordDecision(result.recommendation());
         return result;
     }
 

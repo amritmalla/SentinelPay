@@ -21,6 +21,7 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRe
 import com.sentinelpay.payment.infrastructure.persistence.RefundRepository;
 import com.sentinelpay.payment.infrastructure.provider.MockPayProvider;
 import com.sentinelpay.payment.infrastructure.provider.StripeStubProvider;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,6 +78,9 @@ class FailoverChargeIT {
 
     @Autowired
     RefundRepository refundRepository;
+
+    @Autowired
+    MeterRegistry meterRegistry;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -235,6 +239,12 @@ class FailoverChargeIT {
 
         double rate = (double) completed / total;
         assertThat(rate).isGreaterThanOrEqualTo(0.95);
+        assertThat(totalCounter("sentinelpay_double_capture_total")).isEqualTo(0.0);
+        assertThat(totalCounter("sentinelpay_recovered_authorization_total")).isGreaterThanOrEqualTo(1.0);
+    }
+
+    private double totalCounter(String name) {
+        return meterRegistry.find(name).counters().stream().mapToDouble(c -> c.count()).sum();
     }
 
     private ChargeCommand command(String idempotencyKey) {

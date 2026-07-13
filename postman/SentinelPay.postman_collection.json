@@ -1,0 +1,459 @@
+{
+  "info": {
+    "_postman_id": "b7f0a2c1-8d3e-4a76-9c21-1f2e3a4b5c60",
+    "name": "SentinelPay — v1 API",
+    "description": "End-to-end API tests for SentinelPay through the gateway (http://localhost:8080).\n\nRun order matters: the Auth folder mints tokens, Charge captures a payment_id that later folders reuse. Use the Collection Runner or Newman to run top-to-bottom.\n\nPrereq: `docker compose up -d` and all five services running, with the gateway on the `dev` profile (so `/dev/token` is available).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "merchant_id", "value": "" },
+    { "key": "merchant_token", "value": "" },
+    { "key": "ops_token", "value": "" },
+    { "key": "idempotency_key", "value": "" },
+    { "key": "payment_id", "value": "" },
+    { "key": "trail_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Mint merchant token",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// One stable merchant identity for the whole run (drives merchant-scoping).",
+                  "if (!pm.collectionVariables.get('merchant_id')) {",
+                  "  pm.collectionVariables.set('merchant_id', pm.variables.replaceIn('{{$guid}}'));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns a token', () => pm.expect(body.token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('merchant_token', body.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"MERCHANT\",\n  \"merchant_id\": \"{{merchant_id}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/dev/token", "host": [ "{{base_url}}" ], "path": [ "dev", "token" ] },
+            "description": "Mints an HS256 JWT for the run's merchant. Requires the gateway `dev` profile."
+          }
+        },
+        {
+          "name": "Mint ops token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns a token', () => pm.expect(body.token).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('ops_token', body.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"OPS\",\n  \"merchant_id\": \"{{merchant_id}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/dev/token", "host": [ "{{base_url}}" ], "path": [ "dev", "token" ] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Charge",
+      "item": [
+        {
+          "name": "Create charge",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh idempotency key per run; reused by 'Idempotent replay'.",
+                  "if (!pm.collectionVariables.get('idempotency_key')) {",
+                  "  pm.collectionVariables.set('idempotency_key', 'pm-' + pm.variables.replaceIn('{{$guid}}'));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('completed via MockPay', () => {",
+                  "  pm.expect(body.status).to.eql('COMPLETED');",
+                  "  pm.expect(body.provider).to.eql('MOCKPAY');",
+                  "});",
+                  "pm.test('has payment_id and trail_id', () => {",
+                  "  pm.expect(body.payment_id).to.be.a('string').and.not.empty;",
+                  "  pm.expect(body.trail_id).to.eql(body.payment_id);",
+                  "});",
+                  "pm.collectionVariables.set('payment_id', body.payment_id);",
+                  "pm.collectionVariables.set('trail_id', body.trail_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{merchant_token}}" },
+              { "key": "Idempotency-Key", "value": "{{idempotency_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/charge",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "charge" ]
+            }
+          }
+        },
+        {
+          "name": "Idempotent replay (same key)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the SAME payment (no double charge)', () => {",
+                  "  pm.expect(body.payment_id).to.eql(pm.collectionVariables.get('payment_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{merchant_token}}" },
+              { "key": "Idempotency-Key", "value": "{{idempotency_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/charge",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "charge" ]
+            },
+            "description": "Replaying the same Idempotency-Key must return the original result, never a second charge."
+          }
+        },
+        {
+          "name": "Reject invalid charge (negative amount)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected with 4xx validation error', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400, 422]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{merchant_token}}" },
+              { "key": "Idempotency-Key", "value": "pm-invalid-{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_cents\": -5,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/charge",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "charge" ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Query",
+      "item": [
+        {
+          "name": "List payments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('includes the charged payment', () => {",
+                  "  pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('payment_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{merchant_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments" ]
+            }
+          }
+        },
+        {
+          "name": "Get payment by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('is the charged payment', () => {",
+                  "  pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('payment_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{merchant_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/{{payment_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "{{payment_id}}" ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Refund",
+      "item": [
+        {
+          "name": "Refund payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('refund is for the charged payment', () => {",
+                  "  pm.expect(body.payment_id).to.eql(pm.collectionVariables.get('payment_id'));",
+                  "  pm.expect(body.refund_id).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{merchant_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"reason\": \"customer request\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/{{payment_id}}/refunds",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "{{payment_id}}", "refunds" ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Ops (OPS token)",
+      "item": [
+        {
+          "name": "Decision trail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('trail is JSON', () => pm.expect(pm.response.json()).to.be.an('object'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ops_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/{{payment_id}}/trail",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "{{payment_id}}", "trail" ]
+            }
+          }
+        },
+        {
+          "name": "Fraud assessment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{ops_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/fraud-assessments/{{payment_id}}",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "fraud-assessments", "{{payment_id}}" ],
+              "description": "The risk assessment is keyed by the transaction id, which is the payment id."
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Webhooks",
+      "item": [
+        {
+          "name": "Stripe webhook (unauthenticated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_pm_{{$guid}}\",\n  \"type\": \"charge.succeeded\",\n  \"data\": { \"object\": { \"id\": \"ch_unmatched_demo\" } }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/stripe",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "webhooks", "stripe" ]
+            },
+            "description": "Idempotent inbound webhook (signature verification deferred in v1). An unmatched object id is a safe no-op that still returns 204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. AuthZ (negative)",
+      "item": [
+        {
+          "name": "Charge without token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "pm-noauth-{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/charge",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "charge" ]
+            }
+          }
+        },
+        {
+          "name": "Merchant token on ops trail → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{merchant_token}}" } ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/payments/{{payment_id}}/trail",
+              "host": [ "{{base_url}}" ],
+              "path": [ "api", "v1", "payments", "{{payment_id}}", "trail" ],
+              "description": "The trail is an OPS endpoint; a MERCHANT token must be rejected."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

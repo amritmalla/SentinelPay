@@ -1,0 +1,36 @@
+{
+  "uid": "sp-provider-health",
+  "title": "Provider Health",
+  "tags": ["sentinelpay", "provider"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Authorization success ratio by provider",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (provider) (rate(sentinelpay_provider_authorization_total{outcome=\"AUTHORIZED\"}[5m])) / sum by (provider) (rate(sentinelpay_provider_authorization_total[5m]))",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Provider call p99 latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (provider, op, le) (rate(sentinelpay_provider_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{provider}} {{op}}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+groups:
+  - name: sentinelpay-slos
+    rules:
+      - alert: ChargeAvailabilityBurnCritical
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge",status=~"5.."}[1h]))
+            /
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge"}[1h]))
+          ) > (14.4 * 0.001)
+          and
+          (
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge",status=~"5.."}[6h]))
+            /
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge"}[6h]))
+          ) > (6 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          owner: platform
+          slo: charge-availability
+        annotations:
+          summary: Charge availability SLO burn rate critical
+          runbook: docs/architecture/operations/runbooks/charge-availability-burn.md
+          description: Multi-window burn rate exceeded for 99.9% charge availability SLO.
+
+      - alert: ChargeAvailabilityBurnTicket
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge",status=~"5.."}[6h]))
+            /
+            sum(rate(http_server_requests_seconds_count{uri="/api/v1/payments/charge"}[6h]))
+          ) > (3 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+          owner: platform
+          slo: charge-availability
+        annotations:
+          summary: Charge availability SLO burn rate elevated
+          runbook: docs/architecture/operations/runbooks/charge-availability-burn.md
+
+      - alert: ChargeLatencyBurnCritical
+        expr: |
+          histogram_quantile(0.99, sum(rate(sentinelpay_charge_duration_seconds_bucket[1h])) by (le))
+          > 0.15
+        for: 10m
+        labels:
+          severity: page
+          owner: platform
+          slo: charge-latency-p99
+        annotations:
+          summary: Charge p99 latency exceeds 150ms budget
+          runbook: docs/architecture/operations/runbooks/charge-latency-burn.md
+
+      # Binary invariant: any double-capture is a correctness break (not a burn-rate SLO).
+      - alert: DoubleCaptureDetected
+        expr: increase(sentinelpay_double_capture_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          owner: platform
+          slo: correctness-double-capture
+        annotations:
+          summary: Double capture detected — payment captured from terminal state
+          runbook: docs/architecture/operations/runbooks/double-capture.md
+          description: sentinelpay_double_capture_total increased; investigate immediately.

@@ -72,6 +72,10 @@ class ChargeServiceIT {
         registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
         registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
         registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        // Park the outbox relay (default 500 ms) so it can't publish this test's row before the
+        // assertions run — charge_happyPath asserts the row is written *unpublished* (the transactional
+        // outbox contract). Actual relay publishing is covered by OutboxRelayIT.
+        registry.add("sentinelpay.outbox.relay.fixed-delay-ms", () -> "600000");
     }
 
     @BeforeEach

@@ -26,6 +26,10 @@ spring:
       port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
     producer:
       acks: all
       properties:

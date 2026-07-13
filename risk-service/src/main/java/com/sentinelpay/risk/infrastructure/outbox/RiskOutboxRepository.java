@@ -35,4 +35,17 @@ public interface RiskOutboxRepository extends JpaRepository<RiskOutboxEntity, Lo
                     """,
             nativeQuery = true)
     int deletePublishedBefore(@Param("cutoff") Instant cutoff);
+
+    @Query(value = "SELECT COUNT(*) FROM risk_outbox WHERE published_at IS NULL", nativeQuery = true)
+    long countPending();
+
+    @Query(
+            value =
+                    """
+                    SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))
+                    FROM risk_outbox
+                    WHERE published_at IS NULL
+                    """,
+            nativeQuery = true)
+    Double oldestPendingAgeSeconds();
 }

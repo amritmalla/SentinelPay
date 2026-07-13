@@ -29,6 +29,8 @@
         <stripe-java.version>28.4.0</stripe-java.version>
         <wiremock.version>3.9.1</wiremock.version>
         <swagger-request-validator.version>2.46.1</swagger-request-validator.version>
+        <opentelemetry-instrumentation.version>1.31.0-alpha</opentelemetry-instrumentation.version>
+        <logstash-logback-encoder.version>7.4</logstash-logback-encoder.version>
     </properties>
 
     <modules>
@@ -166,6 +168,16 @@
                 <groupId>com.atlassian.oai</groupId>
                 <artifactId>swagger-request-validator-mockmvc</artifactId>
                 <version>${swagger-request-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-grpc-1.6</artifactId>
+                <version>${opentelemetry-instrumentation.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.logstash.logback</groupId>
+                <artifactId>logstash-logback-encoder</artifactId>
+                <version>${logstash-logback-encoder.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

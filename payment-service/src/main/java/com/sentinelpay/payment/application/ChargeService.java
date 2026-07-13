@@ -10,6 +10,7 @@ import com.sentinelpay.payment.application.port.PaymentProvider;
 import com.sentinelpay.payment.application.port.RiskEvaluator;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
+import com.sentinelpay.payment.infrastructure.metrics.ChargeMetrics;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -25,20 +26,27 @@ public class ChargeService {
     private final RiskEvaluator riskEvaluator;
     private final ProviderRouting providerRouting;
     private final Map<Provider, PaymentProvider> providers;
+    private final ChargeMetrics chargeMetrics;
 
     public ChargeService(
             PaymentTransactionService paymentTransactionService,
             RiskEvaluator riskEvaluator,
             ProviderRouting providerRouting,
-            List<PaymentProvider> paymentProviders) {
+            List<PaymentProvider> paymentProviders,
+            ChargeMetrics chargeMetrics) {
         this.paymentTransactionService = paymentTransactionService;
         this.riskEvaluator = riskEvaluator;
         this.providerRouting = providerRouting;
         this.providers = paymentProviders.stream()
                 .collect(Collectors.toMap(PaymentProvider::id, Function.identity()));
+        this.chargeMetrics = chargeMetrics;
     }
 
     public ChargeResult charge(ChargeCommand command) {
+        return chargeMetrics.recordCharge(() -> doCharge(command));
+    }
+
+    private ChargeResult doCharge(ChargeCommand command) {
         BeginChargeOutcome begin = paymentTransactionService.beginCharge(command);
         if (begin instanceof BeginChargeOutcome.Stored stored) {
             return stored.result();
@@ -52,6 +60,10 @@ public class ChargeService {
                 command.amountCents(),
                 command.currency(),
                 command.customerEmail()));
+
+        if (risk.fallbackUsed()) {
+            chargeMetrics.recordRiskFallback();
+        }
 
         DecisionResult decision = paymentTransactionService.recordDecision(paymentId, command, risk);
         if (decision.isTerminal()) {
@@ -69,20 +81,32 @@ public class ChargeService {
             String downstreamKey = downstreamKey(paymentId, providerSlot, attemptNumber);
             paymentTransactionService.startAttempt(paymentId, providerSlot, attemptNumber, downstreamKey);
 
-            ProviderOutcome authorizeOutcome = provider.authorize(new PaymentProvider.AuthorizeRequest(
-                    paymentId, downstreamKey, command.amountCents(), command.currency()));
+            boolean reconciledFromAmbiguous = false;
+            ProviderOutcome authorizeOutcome = chargeMetrics.recordProviderCall(
+                    providerSlot, "authorize", () -> provider.authorize(new PaymentProvider.AuthorizeRequest(
+                            paymentId, downstreamKey, command.amountCents(), command.currency())));
 
             Outcome outcome = authorizeOutcome.outcome();
             String providerRef = authorizeOutcome.providerRef();
             if (outcome == Outcome.AMBIGUOUS_TIMEOUT) {
-                ProviderOutcome reconciled = provider.reconcile(downstreamKey);
+                ProviderOutcome reconciled = chargeMetrics.recordProviderCall(
+                        providerSlot, "reconcile", () -> provider.reconcile(downstreamKey));
                 outcome = reconciled.outcome();
                 providerRef = reconciled.providerRef();
+                reconciledFromAmbiguous = true;
+                chargeMetrics.recordProviderAuthorization(providerSlot, outcome.name());
+            } else {
+                chargeMetrics.recordProviderAuthorization(providerSlot, outcome.name());
             }
 
             switch (outcome) {
                 case AUTHORIZED -> {
-                    ProviderOutcome captureOutcome = provider.capture(providerRef);
+                    if (attemptNumber > 1 || reconciledFromAmbiguous) {
+                        chargeMetrics.recordRecoveredAuthorization(providerSlot);
+                    }
+                    final String captureRef = providerRef;
+                    ProviderOutcome captureOutcome = chargeMetrics.recordProviderCall(
+                            providerSlot, "capture", () -> provider.capture(captureRef));
                     return paymentTransactionService.completePayment(
                             paymentId,
                             providerSlot,
