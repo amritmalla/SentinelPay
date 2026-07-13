@@ -35,4 +35,17 @@ public interface ProviderOutboxRepository extends JpaRepository<ProviderOutboxEn
                     """,
             nativeQuery = true)
     int deletePublishedBefore(@Param("cutoff") Instant cutoff);
+
+    @Query(value = "SELECT COUNT(*) FROM provider_outbox WHERE published_at IS NULL", nativeQuery = true)
+    long countPending();
+
+    @Query(
+            value =
+                    """
+                    SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))
+                    FROM provider_outbox
+                    WHERE published_at IS NULL
+                    """,
+            nativeQuery = true)
+    Double oldestPendingAgeSeconds();
 }

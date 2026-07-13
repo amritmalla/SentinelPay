@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import io.opentelemetry.api.trace.Span;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -19,7 +20,10 @@ import java.util.UUID;
  * generates one, exposes it in the MDC (for logs and the error envelope) and echoes it in the response.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+// Just inside Spring's ServerHttpObservationFilter (HIGHEST_PRECEDENCE + 1), which creates the HTTP
+// server span — so Span.current() below is the real span and the correlation_id attribute attaches.
+// Still ahead of security filters and controllers, so the MDC requestId is set for all request logs.
+@Order(Ordered.HIGHEST_PRECEDENCE + 2)
 public class CorrelationIdFilter extends OncePerRequestFilter {
 
     @Override
@@ -30,6 +34,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             correlationId = UUID.randomUUID().toString();
         }
         MDC.put(CorrelationConstants.MDC_REQUEST_ID, correlationId);
+        Span.current().setAttribute(CorrelationConstants.SPAN_CORRELATION_ID, correlationId);
         response.setHeader(CorrelationConstants.HEADER_CORRELATION_ID, correlationId);
         try {
             chain.doFilter(request, response);

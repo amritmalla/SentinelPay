@@ -19,6 +19,11 @@
             <groupId>com.sentinelpay</groupId>
             <artifactId>sentinelpay-common</artifactId>
         </dependency>
+        <!-- logback-spring.xml JSON appender; declared on each service (not only via common). -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.sentinelpay</groupId>
             <artifactId>sentinelpay-proto</artifactId>
@@ -60,6 +65,14 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-grpc-1.6</artifactId>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>

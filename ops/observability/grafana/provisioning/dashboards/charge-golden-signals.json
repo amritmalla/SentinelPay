@@ -1,0 +1,57 @@
+{
+  "uid": "sp-charge-golden",
+  "title": "Charge Golden Signals",
+  "tags": ["sentinelpay", "charge"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Charge rate (req/s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=~\".*/payments/charge\"}[1m]))",
+          "legendFormat": "charge rps"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Charge error rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=~\".*/payments/charge\",status=~\"5..\"}[1m])) / sum(rate(http_server_requests_seconds_count{uri=~\".*/payments/charge\"}[1m]))",
+          "legendFormat": "5xx ratio"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Charge duration p50/p95/p99",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(sentinelpay_charge_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(sentinelpay_charge_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(sentinelpay_charge_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "150ms p99 budget",
+      "type": "gauge",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 16},
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.15}]}}},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, sum(rate(sentinelpay_charge_duration_seconds_bucket[5m])) by (le))"}
+      ]
+    }
+  ]
+}

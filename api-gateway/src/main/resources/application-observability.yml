@@ -1,0 +1,6 @@
+# Opt-in trace export to Tempo. Without this profile, spans stay in-process (no OTLP exporter).
+# Activate: spring.profiles.active=dev,observability (or set SPRING_PROFILES_ACTIVE).
+management:
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}

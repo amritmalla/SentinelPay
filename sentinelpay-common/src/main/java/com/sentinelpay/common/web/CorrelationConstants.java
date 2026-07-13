@@ -10,4 +10,7 @@ public final class CorrelationConstants {
 
     /** MDC key surfaced in structured logs and the error envelope's {@code request_id}. */
     public static final String MDC_REQUEST_ID = "requestId";
+
+    /** Span attribute linking the business correlation id to the technical trace. */
+    public static final String SPAN_CORRELATION_ID = "sentinelpay.correlation_id";
 }

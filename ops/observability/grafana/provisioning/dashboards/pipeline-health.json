@@ -1,0 +1,38 @@
+{
+  "uid": "sp-pipeline-health",
+  "title": "Pipeline Health",
+  "tags": ["sentinelpay", "pipeline"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Outbox pending depth",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sentinelpay_outbox_pending", "legendFormat": "{{service}}"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Outbox oldest pending age (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "sentinelpay_outbox_oldest_pending_seconds", "legendFormat": "{{service}}"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Kafka consumer lag",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "kafka_consumer_fetch_manager_records_lag", "legendFormat": "{{client_id}} {{topic}}"}
+      ]
+    }
+  ]
+}

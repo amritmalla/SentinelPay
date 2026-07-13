@@ -7,12 +7,15 @@
 ## Table of contents
 
 - [Documentation](#documentation)
+- [Features](#features)
 - [Architecture](#architecture)
 - [Modules](#modules)
 - [Tech stack](#tech-stack)
 - [Prerequisites](#prerequisites)
 - [Build and test](#build-and-test)
-- [Local development](#local-development)
+- [Run locally](#run-locally)
+- [Using the API](#using-the-api)
+- [Observability](#observability)
 - [Status](#status)
 - [Contributing and license](#contributing-and-license)
 
@@ -27,7 +30,19 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 | [Data Architecture](docs/architecture/data-architecture.md) | Ownership, consistency, indexing, retention |
 | [Backend Architecture](docs/architecture/backend-architecture.md) | Service contracts, domain model, flows |
 | [OpenAPI](docs/architecture/contracts/openapi.yaml) | Public and ops REST contract (OpenAPI 3.1, lint-clean) |
+| [Observability](docs/architecture/observability.md) | Signals, metric catalog, SLOs, alerts, dashboards |
 | [ADRs](docs/architecture/adrs/) | Architecture decision records 0001–0011 |
+
+## Features
+
+- **Multi-provider routing & failover** — a charge is attempted against a healthy provider and automatically fails over to the next on failure, within a single request (MockPay primary; a second Stripe slot, stubbed by default, swappable to real Stripe test-mode via `STRIPE_MODE`).
+- **No double-charge (correctness gate)** — idempotency-key-first writes, ambiguous-timeout reconciliation *before* any failover, optimistic-concurrency state machine, and a crash-recovery reconciliation sweep. Enforced by an integration test asserting **double-charge = 0** across every failover path.
+- **Explainable risk scoring** — pluggable rule-based scorer over gRPC returning `score ∈ [0,1]`, contributing factors, and `model_version`; Redis velocity counters; amount-based fallback on gRPC deadline (flagged in the trail).
+- **Decision trail** — every charge composes its risk factors and provider attempts into an auditable, explainable record.
+- **Refunds** — full/partial refunds against completed payments, emitted as events.
+- **Stripe webhook reconciliation** — idempotent inbound webhook handling (signature verification deferred in v1).
+- **Security boundary** — JWT (HS256) auth at the gateway with identity-header injection; merchant-scoped access and default-deny ops endpoints.
+- **Observability** — RED + business metrics (recovered-authorization, a double-capture tripwire, per-provider latency), distributed traces across REST → gRPC → Kafka, SLOs with burn-rate alerts, and Grafana dashboards.
 
 ## Architecture
 
@@ -82,7 +97,7 @@ Maven multi-module layout (`sentinelpay-parent`):
 | Data | PostgreSQL 15, Redis 7, Flyway |
 | Messaging | Apache Kafka, transactional outbox |
 | RPC | gRPC / Protocol Buffers |
-| Observability | Micrometer, OpenTelemetry |
+| Observability | Micrometer, OpenTelemetry, Prometheus, Grafana, Tempo |
 | Testing | Testcontainers, JUnit 5 |
 | Build | Maven (multi-module), Maven Wrapper |
 
@@ -91,6 +106,7 @@ Maven multi-module layout (`sentinelpay-parent`):
 - **JDK 17**
 - **Maven 3.9+** (or use the included `./mvnw` wrapper)
 - **Docker** — required for Testcontainers during tests and for local infrastructure via Compose
+- Optional for the API examples below: `curl`, `jq`
 
 ## Build and test
 
@@ -99,49 +115,150 @@ Maven multi-module layout (`sentinelpay-parent`):
 ./mvnw -q verify               # full build + tests (Docker must be running)
 ```
 
-The [Makefile](Makefile) provides shortcuts:
+After pulling changes or editing `sentinelpay-common`, install shared modules before running a single service (otherwise Maven may use a stale local copy and startup fails on missing classes or logging):
 
-| Target | Description |
-| --- | --- |
-| `make build` | Compile all modules (skip tests) |
-| `make test` | Run all tests |
-| `make verify` | Full build and tests |
-| `make up` / `make down` | Start or stop local infrastructure |
-| `make run-gateway` | Run API Gateway |
-| `make run-payment` | Run Payment Service |
-| `make run-risk` | Run Risk Service |
-| `make run-provider` | Run Provider Service |
-| `make run-notification` | Run Notification Service |
+```bash
+./mvnw -q install -pl sentinelpay-common,sentinelpay-proto -DskipTests
+```
 
-## Local development
+Alternatively, add `-am` when starting a service so Maven rebuilds its module dependencies from the reactor:
 
-Start shared infrastructure (Postgres, Redis, Kafka, MailHog):
+```bash
+./mvnw -q -pl payment-service -am spring-boot:run
+```
+
+## Run locally
+
+The five services run on the host (from your IDE or Maven); their dependencies run in Docker.
+
+**1. Start dependencies** (Postgres ×4, Redis, Kafka, MailHog, and the Prometheus/Tempo/Grafana stack):
 
 ```bash
 docker compose up -d
 # or: make up
 ```
 
-| Service | Host port | Notes |
+**2. Run the services.** The gateway must use the `dev` profile so the local token endpoint (`/dev/token`) is available. No trace-export env vars are required — metrics and logs are always on; trace export to Tempo is opt-in (see [Observability](#observability)).
+
+```bash
+./mvnw -q -pl api-gateway     -am spring-boot:run -Dspring-boot.run.profiles=dev
+./mvnw -q -pl payment-service -am spring-boot:run
+./mvnw -q -pl risk-service    -am spring-boot:run
+./mvnw -q -pl provider-service -am spring-boot:run
+./mvnw -q -pl notification-service -am spring-boot:run
+```
+
+Add `-Dspring-boot.run.profiles=dev` on any service for human-readable console logs instead of JSON (see `logback-spring.xml`).
+
+`make run-payment`, `make run-risk`, etc. are shortcuts (the gateway shortcut runs without the `dev` profile — add it as above if you want `/dev/token`). To send traces to Tempo, add the `observability` profile on every service (gateway: `dev,observability`).
+
+**Ports**
+
+| Component | Host port | Notes |
 | --- | --- | --- |
-| Postgres (payments) | 5434 | DB `sentinelpay_payments` |
-| Postgres (risk) | 5435 | DB `sentinelpay_risk` |
-| Postgres (provider) | 5436 | DB `sentinelpay_provider` |
-| Postgres (notifications) | 5437 | DB `sentinelpay_notifications` |
+| API Gateway | 8080 | Public entry point (JWT) |
+| Payment Service | 8082 | System of record |
+| Risk Service | 8083 (REST), 9091 (gRPC) | Risk scoring |
+| Notification Service | 8084 | Event consumer |
+| Provider Service | 8085 | Provider health/abstraction |
+| Postgres (payments / risk / provider / notifications) | 5434 / 5435 / 5436 / 5437 | DB-per-service |
 | Redis | 6379 | Velocity counters, rate limits |
 | Kafka | 9092 | Event bus |
 | MailHog SMTP / UI | 1025 / 8025 | Local email capture |
+| Prometheus | 9090 | Metrics + alert rules |
+| Tempo | 4318 (OTLP), 3200 | Trace backend |
+| Grafana | 3000 | Dashboards (anonymous viewer) |
 
-Service shells use Testcontainers for integration tests; Compose provides the shared dependencies for runtime wiring as features land.
+## Using the API
+
+All calls go through the gateway at `http://localhost:8080`. Merchant endpoints require a `MERCHANT` token; ops endpoints require an `OPS` token; webhooks are unauthenticated.
+
+**1. Mint a token** (gateway running with the `dev` profile):
+
+```bash
+MERCHANT_ID=$(uuidgen)   # any UUID
+TOKEN=$(curl -s localhost:8080/dev/token \
+  -H 'Content-Type: application/json' \
+  -d "{\"role\":\"MERCHANT\",\"merchant_id\":\"$MERCHANT_ID\"}" | jq -r .token)
+```
+
+**2. Charge a payment** (the `Idempotency-Key` header makes retries safe):
+
+```bash
+curl -s localhost:8080/api/v1/payments/charge \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: order-1001' \
+  -d '{"amount_cents":2500,"currency":"USD","customer_email":"buyer@example.com"}'
+# → 201
+# { "payment_id": "…", "status": "COMPLETED", "provider": "MOCKPAY", "trail_id": "…" }
+```
+
+Repeating the same `Idempotency-Key` returns the original result instead of charging again.
+
+**Endpoints** (base `http://localhost:8080`, full contract in [openapi.yaml](docs/architecture/contracts/openapi.yaml)):
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/dev/token` | none (dev) | Mint a local JWT (`role`, `merchant_id`) |
+| `POST` | `/api/v1/payments/charge` | MERCHANT | Create/charge a payment (`Idempotency-Key` header) |
+| `GET` | `/api/v1/payments` | MERCHANT | List payments (merchant-scoped, paginated) |
+| `GET` | `/api/v1/payments/{id}` | MERCHANT | Retrieve a payment |
+| `POST` | `/api/v1/payments/{id}/refunds` | MERCHANT | Refund a completed payment |
+| `GET` | `/api/v1/payments/{id}/trail` | OPS | Decision trail (risk factors + attempts) |
+| `GET` | `/api/v1/fraud-assessments/{txn_id}` | OPS | Risk assessment for a transaction |
+| `POST` | `/api/v1/webhooks/stripe` | none | Inbound Stripe webhook |
+
+The OpenAPI contract also reserves two ops endpoints — `GET /api/v1/providers/health` and `POST /api/v1/reconciliation-runs` — that are **contract-only in this build** (reconciliation currently runs as a scheduled sweep, not an on-demand endpoint; provider health is exposed via metrics, see [Observability](#observability)).
+
+## Observability
+
+**Metrics and logs** are always enabled — Prometheus scrapes each service's `/actuator/prometheus` as soon as it is up. **Distributed trace export** is opt-in: each service ships an `application-observability.yml` that configures OTLP export to Tempo only when the `observability` Spring profile is active. Default local runs and tests omit that profile, so no `OTLP_TRACES_ENDPOINT` (or Tempo) is required to start services.
+
+| What | Default local run | With `observability` profile |
+| --- | --- | --- |
+| Metrics → Prometheus | yes | yes |
+| JSON logs (stdout) | yes | yes |
+| Traces → Tempo | no (in-process only) | yes |
+
+With the stack from `docker compose up`, open **Grafana at [http://localhost:3000](http://localhost:3000)**. Four provisioned dashboards:
+
+| Dashboard | Shows |
+| --- | --- |
+| Charge golden signals | Charge-path rate / errors / latency vs the SLO |
+| Correctness | `double_capture_total` (must be **0**), recovered-authorization and risk-fallback rates |
+| Provider health | Per-provider success ratio and latency |
+| Pipeline health | Outbox depth, relay lag, Kafka consumer lag |
+
+To see a live charge end to end **with traces in Tempo**, run every service with the `observability` profile and fire a charge:
+
+```bash
+./mvnw -q -pl api-gateway spring-boot:run -Dspring-boot.run.profiles=dev,observability
+./mvnw -q -pl payment-service spring-boot:run -Dspring-boot.run.profiles=observability
+./mvnw -q -pl risk-service spring-boot:run -Dspring-boot.run.profiles=observability
+./mvnw -q -pl provider-service spring-boot:run -Dspring-boot.run.profiles=observability
+./mvnw -q -pl notification-service spring-boot:run -Dspring-boot.run.profiles=observability
+```
+
+Or set `SPRING_PROFILES_ACTIVE` (e.g. `dev,observability` on the gateway). Override the Tempo URL with `OTLP_TRACES_ENDPOINT` if needed (profile default: `http://localhost:4318/v1/traces`).
+
+- **Traces** — a charge produces one trace spanning Gateway → Payment → Risk (gRPC) → Provider, plus the Kafka consumer span; searchable in Tempo (Grafana → Explore) by the `sentinelpay.correlation_id` attribute.
+- **Metrics** — scraped by Prometheus (`:9090`); alert rules (including a page on `double_capture_total > 0`) live in [ops/observability/prometheus/rules.yaml](ops/observability/prometheus/rules.yaml).
+
+Full reference: [docs/architecture/observability.md](docs/architecture/observability.md).
 
 ## Status
 
 | Area | State |
 | --- | --- |
-| Architecture | Complete and approved (PRD → system-design → data-architecture → backend-architecture) |
-| Shared libraries | `sentinelpay-common` and `sentinelpay-proto` build green |
-| Services | Scaffolding in progress across all five deployables |
-| Domain logic | Charge/failover, Kafka outbox, Redis, and gRPC runtime wiring delivered incrementally |
+| Architecture | Complete and approved (PRD → system-design → data/backend architecture, ADRs 0001–0011) |
+| Charge & failover | Delivered — routing, in-request failover, ambiguous-timeout reconciliation, no-double-charge gate |
+| Risk pipeline | Delivered — gRPC scoring, Redis velocity, explainable trail, amount-based fallback |
+| Payment surface | Delivered — charge, list/get, refunds, decision trail, Stripe webhook |
+| Security | Delivered — gateway JWT auth, identity injection, merchant-scoping, default-deny ops |
+| Quality gate | Delivered — CI (`./mvnw verify`), REST contract tests, coverage, OpenAPI lint |
+| Observability | Delivered — RED + business metrics, distributed tracing, SLO burn-rate alerts, dashboards |
+| Packaging | In progress — one-command full-system run and demo polish |
 
 ## Contributing and license
 

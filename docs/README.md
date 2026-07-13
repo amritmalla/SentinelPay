@@ -15,6 +15,7 @@ docs/
     ├── system-design.md         Bounded contexts, 5-service topology, failure modes
     ├── data-architecture.md     Ownership, consistency, indexing, retention
     ├── backend-architecture.md  Service contracts, domain model, flows, idempotency
+    ├── observability.md         Metrics, traces (opt-in profile), SLOs, alerts, dashboards
     ├── adrs/                    Decision records 0001–0011 (accepted)
     └── contracts/
         ├── openapi.yaml          Public/ops REST API (OpenAPI 3.1, lint-clean)
@@ -27,7 +28,8 @@ docs/
 2. [product/PRD.md](product/PRD.md) — the narrowed, approved v1.
 3. [architecture/system-design.md](architecture/system-design.md) — the architectural envelope.
 4. [architecture/data-architecture.md](architecture/data-architecture.md) and [backend-architecture.md](architecture/backend-architecture.md) — implementation direction.
-5. [architecture/adrs/](architecture/adrs/) — why each non-obvious decision was made.
+5. [architecture/observability.md](architecture/observability.md) — signals, opt-in trace export, SLOs, and runbooks.
+6. [architecture/adrs/](architecture/adrs/) — why each non-obvious decision was made.
 
 ## Status
 

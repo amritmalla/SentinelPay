@@ -19,6 +19,7 @@ import com.sentinelpay.payment.application.port.RiskEvaluator;
 import com.sentinelpay.payment.domain.PaymentStateMachine;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
+import com.sentinelpay.payment.infrastructure.metrics.ChargeMetrics;
 import com.sentinelpay.payment.infrastructure.outbox.PaymentOutboxEntity;
 import com.sentinelpay.payment.infrastructure.outbox.PaymentOutboxRepository;
 import com.sentinelpay.payment.infrastructure.persistence.IdempotencyKeyEntity;
@@ -58,6 +59,7 @@ public class PaymentTransactionService {
     private final PaymentStatusHistoryRepository paymentStatusHistoryRepository;
     private final RefundRepository refundRepository;
     private final ObjectMapper objectMapper;
+    private final ChargeMetrics chargeMetrics;
 
     public PaymentTransactionService(
             PaymentRepository paymentRepository,
@@ -66,7 +68,8 @@ public class PaymentTransactionService {
             PaymentOutboxRepository paymentOutboxRepository,
             PaymentStatusHistoryRepository paymentStatusHistoryRepository,
             RefundRepository refundRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ChargeMetrics chargeMetrics) {
         this.paymentRepository = paymentRepository;
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
@@ -74,6 +77,7 @@ public class PaymentTransactionService {
         this.paymentStatusHistoryRepository = paymentStatusHistoryRepository;
         this.refundRepository = refundRepository;
         this.objectMapper = objectMapper;
+        this.chargeMetrics = chargeMetrics;
     }
 
     @Transactional
@@ -187,6 +191,10 @@ public class PaymentTransactionService {
             ChargeCommand command) {
         PaymentEntity payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+
+        if (isCapturedOrTerminal(payment.getStatus())) {
+            chargeMetrics.recordDoubleCapture();
+        }
 
         transition(payment, PaymentStatus.AUTHORIZED);
         transition(payment, PaymentStatus.CAPTURED);
@@ -543,5 +551,12 @@ public class PaymentTransactionService {
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize event payload", ex);
         }
+    }
+
+    private static boolean isCapturedOrTerminal(PaymentStatus status) {
+        return status == PaymentStatus.CAPTURED
+                || status == PaymentStatus.COMPLETED
+                || status == PaymentStatus.REFUND_PENDING
+                || status == PaymentStatus.REFUNDED;
     }
 }

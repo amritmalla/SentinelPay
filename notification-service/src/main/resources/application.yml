@@ -22,11 +22,14 @@ spring:
     baseline-on-migrate: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    template:
+      observation-enabled: true
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:notification-service}
       auto-offset-reset: earliest
       enable-auto-commit: false
     listener:
+      observation-enabled: true
       ack-mode: manual
   mail:
     host: ${MAIL_HOST:localhost}

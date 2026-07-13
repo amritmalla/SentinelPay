@@ -1,0 +1,47 @@
+{
+  "uid": "sp-correctness",
+  "title": "Correctness",
+  "tags": ["sentinelpay", "correctness"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Double capture total (must be 0)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      },
+      "targets": [{"expr": "sum(sentinelpay_double_capture_total)"}]
+    },
+    {
+      "id": 2,
+      "title": "Recovered authorization rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(sentinelpay_recovered_authorization_total[5m]))", "legendFormat": "recovered auth/s"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Risk fallback rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(sentinelpay_risk_fallback_total[5m]))", "legendFormat": "risk fallback/s"}
+      ]
+    }
+  ]
+}
