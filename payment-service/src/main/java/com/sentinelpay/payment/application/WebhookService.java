@@ -1,6 +1,7 @@
 package com.sentinelpay.payment.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.common.error.ApiException;
 import com.sentinelpay.common.error.ErrorCode;
 import com.sentinelpay.payment.domain.PaymentStatus;
@@ -9,6 +10,10 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
+import com.stripe.exception.SignatureVerificationException;
+import com.stripe.model.Event;
+import com.stripe.net.Webhook;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -21,21 +26,43 @@ public class WebhookService {
     private final PaymentRepository paymentRepository;
     private final PaymentTransactionService paymentTransactionService;
     private final WebhookDedupService webhookDedupService;
+    private final ObjectMapper objectMapper;
+    private final String webhookSecret;
 
     public WebhookService(
             PaymentAttemptRepository paymentAttemptRepository,
             PaymentRepository paymentRepository,
             PaymentTransactionService paymentTransactionService,
-            WebhookDedupService webhookDedupService) {
+            WebhookDedupService webhookDedupService,
+            ObjectMapper objectMapper,
+            @Value("${sentinelpay.providers.stripe.webhook-secret}") String webhookSecret) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.paymentRepository = paymentRepository;
         this.paymentTransactionService = paymentTransactionService;
         this.webhookDedupService = webhookDedupService;
+        this.objectMapper = objectMapper;
+        this.webhookSecret = webhookSecret;
     }
 
-    public void handle(JsonNode event) {
-        String eventId = textOrNull(event, "id");
-        String eventType = textOrNull(event, "type");
+    public void handle(String rawBody, String signature) {
+        Event stripeEvent;
+        try {
+            stripeEvent = Webhook.constructEvent(rawBody, signature, webhookSecret);
+        } catch (SignatureVerificationException ex) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "invalid_webhook_signature");
+        }
+
+        JsonNode event;
+        try {
+            event = objectMapper.readTree(rawBody);
+        } catch (Exception ex) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "invalid_webhook_event");
+        }
+
+        applyEvent(event, stripeEvent.getId(), stripeEvent.getType());
+    }
+
+    private void applyEvent(JsonNode event, String eventId, String eventType) {
         if (eventId == null || eventType == null) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "invalid_webhook_event");
         }

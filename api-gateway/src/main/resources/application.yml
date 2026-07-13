@@ -58,6 +58,9 @@ management:
       probability: ${TRACE_SAMPLE:1.0}
 
 sentinelpay:
+  security:
+    jwt-secret: ${JWT_SECRET:change-me-in-production-use-a-long-random-secret}
+    gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}
   gateway:
     rate-limit:
       enabled: ${RATE_LIMIT_ENABLED:true}

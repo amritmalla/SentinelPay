@@ -60,6 +60,8 @@ management:
       probability: ${TRACE_SAMPLE:1.0}
 
 sentinelpay:
+  security:
+    gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}
   risk:
     grpc:
       port: ${RISK_GRPC_PORT:9091}

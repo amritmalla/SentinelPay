@@ -4,21 +4,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.common.error.ApiException;
 import com.sentinelpay.common.error.ErrorCode;
 import com.sentinelpay.common.error.GlobalExceptionHandler;
+import com.sentinelpay.common.security.GatewaySecurityAutoConfiguration;
 import com.sentinelpay.payment.application.ChargeService;
 import com.sentinelpay.payment.application.model.ChargeResult;
 import com.sentinelpay.payment.config.SecurityConfig;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
+import com.sentinelpay.payment.support.GatewayTestAuth;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static com.sentinelpay.payment.support.GatewayTestAuth.asMerchant;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,7 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ChargeController.class)
-@Import({GlobalExceptionHandler.class, SecurityConfig.class})
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, GatewaySecurityAutoConfiguration.class})
+@TestPropertySource(properties = "sentinelpay.security.gateway-secret=" + GatewayTestAuth.SECRET)
 class ChargeControllerTest {
 
     @Autowired
@@ -46,17 +51,16 @@ class ChargeControllerTest {
         when(chargeService.charge(any())).thenReturn(new ChargeResult(
                 paymentId, PaymentStatus.COMPLETED, Provider.MOCKPAY, paymentId));
 
-        mockMvc.perform(post("/api/v1/payments/charge")
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
                         .header("Idempotency-Key", "demo-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "USD",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.payment_id").value(paymentId.toString()))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
@@ -65,19 +69,33 @@ class ChargeControllerTest {
     }
 
     @Test
-    void charge_missingIdempotencyKey_returns400() throws Exception {
-        UUID merchantId = UUID.randomUUID();
-
+    void charge_missingGatewaySecret_returns401() throws Exception {
         mockMvc.perform(post("/api/v1/payments/charge")
+                        .header("Idempotency-Key", "demo-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "USD",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void charge_missingIdempotencyKey_returns400() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "amount_cents": 2500,
+                                  "currency": "USD",
+                                  "customer_email": "buyer@example.com"
+                                }
+                                """))
                 .andExpect(status().isBadRequest());
     }
 
@@ -85,17 +103,16 @@ class ChargeControllerTest {
     void charge_badCurrency_returns400() throws Exception {
         UUID merchantId = UUID.randomUUID();
 
-        mockMvc.perform(post("/api/v1/payments/charge")
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
                         .header("Idempotency-Key", "demo-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "usd",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
                 .andExpect(status().isBadRequest());
     }
 
@@ -106,17 +123,16 @@ class ChargeControllerTest {
         when(chargeService.charge(any())).thenThrow(new ApiException(
                 ErrorCode.IDEMPOTENCY_CONFLICT, "Idempotency-Key reused with a different request"));
 
-        mockMvc.perform(post("/api/v1/payments/charge")
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
                         .header("Idempotency-Key", "demo-conflict")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "USD",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_CONFLICT"));
     }
@@ -127,17 +143,16 @@ class ChargeControllerTest {
 
         when(chargeService.charge(any())).thenThrow(new ApiException(ErrorCode.CONFLICT, "charge_in_progress"));
 
-        mockMvc.perform(post("/api/v1/payments/charge")
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
                         .header("Idempotency-Key", "demo-in-flight")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "USD",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("CONFLICT"))
                 .andExpect(jsonPath("$.error.message").value("charge_in_progress"));

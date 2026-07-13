@@ -28,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import com.sentinelpay.payment.support.GatewayTestAuth;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Duration;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.sentinelpay.payment.support.GatewayTestAuth.asMerchant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -91,18 +93,17 @@ class ChargeEndToEndIT {
     void charge_endToEnd_publishesPaymentCompletedEvent() throws Exception {
         UUID merchantId = UUID.randomUUID();
 
-        mockMvc.perform(post("/api/v1/payments/charge")
+        mockMvc.perform(asMerchant(post("/api/v1/payments/charge"), merchantId)
                         .header("Idempotency-Key", "e2e-1")
                         .header("X-Correlation-Id", "corr-e2e")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "merchant_id": "%s",
                                   "amount_cents": 2500,
                                   "currency": "USD",
                                   "customer_email": "buyer@example.com"
                                 }
-                                """.formatted(merchantId)))
+                                """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.provider").value("MOCKPAY"));

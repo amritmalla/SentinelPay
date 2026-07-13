@@ -1,6 +1,7 @@
 package com.sentinelpay.payment.infrastructure.rest;
 
 import com.sentinelpay.common.error.GlobalExceptionHandler;
+import com.sentinelpay.common.security.GatewaySecurityAutoConfiguration;
 import com.sentinelpay.payment.PaymentTestContainers;
 import com.sentinelpay.payment.config.SecurityConfig;
 import com.sentinelpay.payment.domain.PaymentStatus;
@@ -10,6 +11,8 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import com.sentinelpay.payment.infrastructure.persistence.ProcessedWebhookEventRepository;
+import com.sentinelpay.payment.support.GatewayTestAuth;
+import com.sentinelpay.payment.support.StripeWebhookTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,14 +26,17 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static com.sentinelpay.payment.support.GatewayTestAuth.withGatewaySecretOnly;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = "spring.task.scheduling.enabled=false")
 @AutoConfigureMockMvc
-@Import({GlobalExceptionHandler.class, SecurityConfig.class})
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, GatewaySecurityAutoConfiguration.class})
 class StripeWebhookControllerIT {
+
+    private static final String WEBHOOK_SECRET = "whsec_test_signing_secret";
 
     @Autowired
     MockMvc mockMvc;
@@ -53,6 +59,8 @@ class StripeWebhookControllerIT {
         registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
         registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
         registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        registry.add("sentinelpay.security.gateway-secret", () -> GatewayTestAuth.SECRET);
+        registry.add("sentinelpay.providers.stripe.webhook-secret", () -> WEBHOOK_SECRET);
     }
 
     @BeforeEach
@@ -64,18 +72,20 @@ class StripeWebhookControllerIT {
     }
 
     @Test
-    void receive_validEvent_returns204() throws Exception {
+    void receive_validSignedEvent_returns204() throws Exception {
         seedCompletedPayment("pi_ctrl_1");
+        String payload = """
+                {
+                  "id": "evt_ctrl",
+                  "type": "payment_intent.succeeded",
+                  "data": { "object": { "id": "pi_ctrl_1" } }
+                }
+                """;
 
-        mockMvc.perform(post("/api/v1/webhooks/stripe")
+        mockMvc.perform(withGatewaySecretOnly(post("/api/v1/webhooks/stripe"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "id": "evt_ctrl",
-                                  "type": "payment_intent.succeeded",
-                                  "data": { "object": { "id": "pi_ctrl_1" } }
-                                }
-                                """))
+                        .header("Stripe-Signature", sign(payload))
+                        .content(payload))
                 .andExpect(status().isNoContent());
 
         assertThat(processedWebhookEventRepository.count()).isOne();
@@ -83,16 +93,42 @@ class StripeWebhookControllerIT {
     }
 
     @Test
-    void receive_missingId_returns400() throws Exception {
-        mockMvc.perform(post("/api/v1/webhooks/stripe")
+    void receive_invalidSignature_returns400AndDoesNotProcess() throws Exception {
+        String payload = """
+                {
+                  "id": "evt_bad_sig",
+                  "type": "payment_intent.succeeded",
+                  "data": { "object": { "id": "pi_x" } }
+                }
+                """;
+
+        mockMvc.perform(withGatewaySecretOnly(post("/api/v1/webhooks/stripe"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "type": "payment_intent.succeeded",
-                                  "data": { "object": { "id": "pi_x" } }
-                                }
-                                """))
+                        .header("Stripe-Signature", "t=0,v1=bad")
+                        .content(payload))
                 .andExpect(status().isBadRequest());
+
+        assertThat(processedWebhookEventRepository.count()).isZero();
+    }
+
+    @Test
+    void receive_missingId_returns400() throws Exception {
+        String payload = """
+                {
+                  "type": "payment_intent.succeeded",
+                  "data": { "object": { "id": "pi_x" } }
+                }
+                """;
+
+        mockMvc.perform(withGatewaySecretOnly(post("/api/v1/webhooks/stripe"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Stripe-Signature", sign(payload))
+                        .content(payload))
+                .andExpect(status().isBadRequest());
+    }
+
+    private String sign(String payload) {
+        return StripeWebhookTestSupport.sign(payload, WEBHOOK_SECRET);
     }
 
     private void seedCompletedPayment(String providerRef) {

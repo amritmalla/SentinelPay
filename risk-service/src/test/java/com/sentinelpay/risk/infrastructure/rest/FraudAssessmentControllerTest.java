@@ -2,10 +2,12 @@ package com.sentinelpay.risk.infrastructure.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.common.error.GlobalExceptionHandler;
+import com.sentinelpay.common.security.GatewaySecurityAutoConfiguration;
 import com.sentinelpay.risk.RiskTestContainers;
 import com.sentinelpay.risk.config.SecurityConfig;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentEntity;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentRepository;
+import com.sentinelpay.risk.support.GatewayTestAuth;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import static com.sentinelpay.risk.support.GatewayTestAuth.asMerchant;
+import static com.sentinelpay.risk.support.GatewayTestAuth.asOps;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -28,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "sentinelpay.risk.grpc.port=0"
 })
 @AutoConfigureMockMvc
-@Import({GlobalExceptionHandler.class, SecurityConfig.class})
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, GatewaySecurityAutoConfiguration.class})
 class FraudAssessmentControllerTest {
 
     @Autowired
@@ -48,6 +52,7 @@ class FraudAssessmentControllerTest {
         registry.add("spring.data.redis.host", RiskTestContainers.REDIS::getHost);
         registry.add("spring.data.redis.port", () -> RiskTestContainers.REDIS.getMappedPort(6379));
         registry.add("spring.kafka.bootstrap-servers", RiskTestContainers.KAFKA::getBootstrapServers);
+        registry.add("sentinelpay.security.gateway-secret", () -> GatewayTestAuth.SECRET);
     }
 
     @BeforeEach
@@ -68,7 +73,7 @@ class FraudAssessmentControllerTest {
         entity.setFallbackUsed(false);
         riskAssessmentRepository.saveAndFlush(entity);
 
-        mockMvc.perform(get("/api/v1/fraud-assessments/{transactionId}", transactionId))
+        mockMvc.perform(asOps(get("/api/v1/fraud-assessments/{transactionId}", transactionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transaction_id").value(transactionId.toString()))
                 .andExpect(jsonPath("$.score").value(0.15))
@@ -80,8 +85,20 @@ class FraudAssessmentControllerTest {
 
     @Test
     void getFraudAssessment_missing_returns404() throws Exception {
-        mockMvc.perform(get("/api/v1/fraud-assessments/{transactionId}", UUID.randomUUID()))
+        mockMvc.perform(asOps(get("/api/v1/fraud-assessments/{transactionId}", UUID.randomUUID())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void getFraudAssessment_withoutGatewaySecret_returns401() throws Exception {
+        mockMvc.perform(get("/api/v1/fraud-assessments/{transactionId}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void getFraudAssessment_withMerchantRole_returns403() throws Exception {
+        mockMvc.perform(asMerchant(get("/api/v1/fraud-assessments/{transactionId}", UUID.randomUUID()), UUID.randomUUID()))
+                .andExpect(status().isForbidden());
     }
 }

@@ -28,10 +28,11 @@ public class PaymentQueryService {
         this.paymentRepository = paymentRepository;
     }
 
-    public PaymentView getPayment(UUID paymentId) {
-        return paymentRepository.findById(paymentId)
-                .map(this::toView)
+    public PaymentView getPayment(UUID paymentId, UUID merchantId) {
+        PaymentEntity payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "payment_not_found"));
+        MerchantOwnership.assertOwned(merchantId, payment);
+        return toView(payment);
     }
 
     public PaymentPage listPayments(UUID merchantId, String cursor, Integer limit) {

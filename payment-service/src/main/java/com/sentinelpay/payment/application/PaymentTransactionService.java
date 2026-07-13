@@ -236,6 +236,8 @@ public class PaymentTransactionService {
         PaymentEntity payment = paymentRepository.findByIdForUpdate(command.paymentId())
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "payment_not_found"));
 
+        MerchantOwnership.assertOwned(command.merchantId(), payment);
+
         UUID merchantId = payment.getMerchantId();
         String requestHash = computeRefundRequestHash(command);
 
