@@ -68,7 +68,7 @@ class PaymentQueryServiceIT {
     void getPayment_existing_returnsMappedView() {
         PaymentEntity payment = seedPayment(UUID.randomUUID(), 2_500);
 
-        PaymentView view = paymentQueryService.getPayment(payment.getId());
+        PaymentView view = paymentQueryService.getPayment(payment.getId(), payment.getMerchantId());
 
         assertThat(view.paymentId()).isEqualTo(payment.getId());
         assertThat(view.merchantId()).isEqualTo(payment.getMerchantId());
@@ -78,8 +78,18 @@ class PaymentQueryServiceIT {
     }
 
     @Test
+    void getPayment_wrongMerchant_returns404() {
+        PaymentEntity payment = seedPayment(UUID.randomUUID(), 2_500);
+        UUID otherMerchant = UUID.randomUUID();
+
+        assertThatThrownBy(() -> paymentQueryService.getPayment(payment.getId(), otherMerchant))
+                .isInstanceOf(ApiException.class)
+                .satisfies(ex -> assertThat(((ApiException) ex).errorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    @Test
     void getPayment_missing_returns404() {
-        assertThatThrownBy(() -> paymentQueryService.getPayment(UUID.randomUUID()))
+        assertThatThrownBy(() -> paymentQueryService.getPayment(UUID.randomUUID(), UUID.randomUUID()))
                 .isInstanceOf(ApiException.class)
                 .satisfies(ex -> assertThat(((ApiException) ex).errorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND));
     }

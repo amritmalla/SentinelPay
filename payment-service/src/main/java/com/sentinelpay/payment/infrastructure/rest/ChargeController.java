@@ -2,6 +2,7 @@ package com.sentinelpay.payment.infrastructure.rest;
 
 import com.sentinelpay.common.error.ApiException;
 import com.sentinelpay.common.error.ErrorCode;
+import com.sentinelpay.common.security.CurrentMerchant;
 import com.sentinelpay.common.web.CorrelationConstants;
 import com.sentinelpay.payment.application.ChargeService;
 import com.sentinelpay.payment.application.model.ChargeCommand;
@@ -35,7 +36,7 @@ public class ChargeController {
 
         String correlationId = MDC.get(CorrelationConstants.MDC_REQUEST_ID);
         ChargeCommand command = new ChargeCommand(
-                body.merchantId(),
+                CurrentMerchant.id(),
                 body.amountCents(),
                 body.currency(),
                 body.customerEmail(),

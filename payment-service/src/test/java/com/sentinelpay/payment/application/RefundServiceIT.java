@@ -166,8 +166,9 @@ class RefundServiceIT {
                 "corr-" + UUID.randomUUID())).paymentId();
     }
 
-    private static RefundCommand refundCommand(UUID paymentId, long amountCents, String idempotencyKey) {
-        return new RefundCommand(paymentId, amountCents, "customer_request", idempotencyKey, "corr-refund");
+    private RefundCommand refundCommand(UUID paymentId, long amountCents, String idempotencyKey) {
+        UUID merchantId = paymentRepository.findById(paymentId).orElseThrow().getMerchantId();
+        return new RefundCommand(paymentId, merchantId, amountCents, "customer_request", idempotencyKey, "corr-refund");
     }
 
     @TestConfiguration

@@ -78,3 +78,6 @@ sentinelpay:
       mode: ${STRIPE_MODE:stub}
       api-key: ${STRIPE_API_KEY:sk_test_placeholder}
       base-url: ${STRIPE_BASE_URL:https://api.stripe.com}
+      webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_test_placeholder}
+  security:
+    gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}

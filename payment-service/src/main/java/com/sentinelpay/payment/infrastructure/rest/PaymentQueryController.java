@@ -1,5 +1,6 @@
 package com.sentinelpay.payment.infrastructure.rest;
 
+import com.sentinelpay.common.security.CurrentMerchant;
 import com.sentinelpay.payment.application.PaymentQueryService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,14 +20,13 @@ public class PaymentQueryController {
 
     @GetMapping("/api/v1/payments/{paymentId}")
     public PaymentView getPayment(@PathVariable UUID paymentId) {
-        return paymentQueryService.getPayment(paymentId);
+        return paymentQueryService.getPayment(paymentId, CurrentMerchant.id());
     }
 
     @GetMapping("/api/v1/payments")
     public PaymentPage listPayments(
-            @RequestParam("merchant_id") UUID merchantId,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false) Integer limit) {
-        return paymentQueryService.listPayments(merchantId, cursor, limit);
+        return paymentQueryService.listPayments(CurrentMerchant.id(), cursor, limit);
     }
 }

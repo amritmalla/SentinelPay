@@ -2,6 +2,7 @@ package com.sentinelpay.payment.infrastructure.rest;
 
 import com.sentinelpay.common.error.ApiException;
 import com.sentinelpay.common.error.ErrorCode;
+import com.sentinelpay.common.security.CurrentMerchant;
 import com.sentinelpay.common.web.CorrelationConstants;
 import com.sentinelpay.payment.application.RefundService;
 import com.sentinelpay.payment.application.model.RefundCommand;
@@ -40,6 +41,7 @@ public class RefundController {
         String correlationId = MDC.get(CorrelationConstants.MDC_REQUEST_ID);
         RefundCommand command = new RefundCommand(
                 paymentId,
+                CurrentMerchant.id(),
                 body.amountCents(),
                 body.reason(),
                 idempotencyKey,

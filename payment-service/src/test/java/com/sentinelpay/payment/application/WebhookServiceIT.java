@@ -1,6 +1,5 @@
 package com.sentinelpay.payment.application;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.payment.PaymentTestContainers;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentAttemptEntity;
@@ -9,6 +8,7 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import com.sentinelpay.payment.infrastructure.persistence.ProcessedWebhookEventRepository;
+import com.sentinelpay.payment.support.StripeWebhookTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = "spring.task.scheduling.enabled=false")
 class WebhookServiceIT {
+
+    private static final String WEBHOOK_SECRET = "whsec_test_signing_secret";
 
     @Autowired
     WebhookService webhookService;
@@ -38,15 +40,13 @@ class WebhookServiceIT {
     @Autowired
     ProcessedWebhookEventRepository processedWebhookEventRepository;
 
-    @Autowired
-    ObjectMapper objectMapper;
-
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
         registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
         registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        registry.add("sentinelpay.providers.stripe.webhook-secret", () -> WEBHOOK_SECRET);
     }
 
     @BeforeEach
@@ -58,16 +58,17 @@ class WebhookServiceIT {
     }
 
     @Test
-    void handle_paymentIntentSucceededOnCompleted_isNoOp() throws Exception {
+    void handle_paymentIntentSucceededOnCompleted_isNoOp() {
         UUID paymentId = seedCompletedPayment("pi_completed_1");
-
-        webhookService.handle(objectMapper.readTree("""
+        String payload = """
                 {
                   "id": "evt_1",
                   "type": "payment_intent.succeeded",
                   "data": { "object": { "id": "pi_completed_1" } }
                 }
-                """));
+                """;
+
+        webhookService.handle(payload, sign(payload));
 
         assertThat(processedWebhookEventRepository.count()).isOne();
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
@@ -75,7 +76,7 @@ class WebhookServiceIT {
     }
 
     @Test
-    void handle_duplicateEvent_isIdempotent() throws Exception {
+    void handle_duplicateEvent_isIdempotent() {
         seedCompletedPayment("pi_dup_1");
         String payload = """
                 {
@@ -85,43 +86,46 @@ class WebhookServiceIT {
                 }
                 """;
 
-        webhookService.handle(objectMapper.readTree(payload));
-        webhookService.handle(objectMapper.readTree(payload));
+        webhookService.handle(payload, sign(payload));
+        webhookService.handle(payload, sign(payload));
 
         assertThat(processedWebhookEventRepository.count()).isOne();
     }
 
     @Test
-    void handle_unknownProviderRef_isAcknowledgedNoOp() throws Exception {
-        webhookService.handle(objectMapper.readTree("""
+    void handle_unknownProviderRef_isAcknowledgedNoOp() {
+        String payload = """
                 {
                   "id": "evt_unknown",
                   "type": "payment_intent.succeeded",
                   "data": { "object": { "id": "pi_missing" } }
                 }
-                """));
+                """;
+
+        webhookService.handle(payload, sign(payload));
 
         assertThat(processedWebhookEventRepository.count()).isOne();
     }
 
     @Test
-    void handle_chargeRefunded_marksPaymentRefunded() throws Exception {
+    void handle_chargeRefunded_marksPaymentRefunded() {
         UUID paymentId = seedCompletedPayment("pi_refund_1");
-
-        webhookService.handle(objectMapper.readTree("""
+        String payload = """
                 {
                   "id": "evt_refund",
                   "type": "charge.refunded",
                   "data": { "object": { "id": "pi_refund_1" } }
                 }
-                """));
+                """;
+
+        webhookService.handle(payload, sign(payload));
 
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
                 .isEqualTo(PaymentStatus.REFUNDED);
     }
 
     @Test
-    void handle_chargeRefunded_duplicate_isIdempotent() throws Exception {
+    void handle_chargeRefunded_duplicate_isIdempotent() {
         UUID paymentId = seedCompletedPayment("pi_refund_dup");
         String payload = """
                 {
@@ -131,12 +135,16 @@ class WebhookServiceIT {
                 }
                 """;
 
-        webhookService.handle(objectMapper.readTree(payload));
-        webhookService.handle(objectMapper.readTree(payload));
+        webhookService.handle(payload, sign(payload));
+        webhookService.handle(payload, sign(payload));
 
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
                 .isEqualTo(PaymentStatus.REFUNDED);
         assertThat(processedWebhookEventRepository.count()).isOne();
+    }
+
+    private String sign(String payload) {
+        return StripeWebhookTestSupport.sign(payload, WEBHOOK_SECRET);
     }
 
     private UUID seedCompletedPayment(String providerRef) {

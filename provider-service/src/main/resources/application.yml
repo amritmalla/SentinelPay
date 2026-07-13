@@ -60,6 +60,8 @@ management:
       probability: ${TRACE_SAMPLE:1.0}
 
 sentinelpay:
+  security:
+    gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}
   outbox:
     relay:
       fixed-delay-ms: ${OUTBOX_RELAY_DELAY_MS:500}
