@@ -6,8 +6,8 @@ Thank you for your interest in contributing. This document outlines how to get s
 
 1. Fork the repository and clone your fork.
 2. Start local infrastructure: `docker-compose up -d`
-3. Build the project: `mvn clean install`
-4. Run tests: `mvn test`
+3. Build the project: `./mvnw clean install`
+4. Run the full quality gate: `./mvnw verify`
 
 ## Development Workflow
 
@@ -30,7 +30,8 @@ docs(api): document webhook payload schema
 ## Pull Request Guidelines
 
 - One approval required before merge.
-- CI must pass (unit tests at minimum).
+- **CI must pass** — both the `build` job (`./mvnw verify`, including Testcontainers correctness tests) and `openapi-lint` must be green. See [Quality Gate](docs/architecture/quality-gate.md).
+- Enable branch protection on `main` to require these checks (documented in the quality gate guide).
 - Prefer squash merge for a clean history.
 - Keep PRs focused — one concern per PR when possible.
 - Link related issues or ADRs when applicable.
@@ -40,7 +41,7 @@ docs(api): document webhook payload schema
 - Match existing patterns in the module you are editing.
 - Java 17, Spring Boot 3.2 conventions.
 - No secrets in source control — use environment variables or local config.
-- Run `mvn test` before submitting.
+- Run `./mvnw verify` before submitting.
 
 ## Documentation
 

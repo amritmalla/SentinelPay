@@ -11,6 +11,8 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import com.sentinelpay.payment.infrastructure.risk.RiskAssessmentClient;
 import com.sentinelpay.payment.support.GatewayTestAuth;
+import com.sentinelpay.payment.support.OpenApiContractSupport;
+import com.sentinelpay.payment.support.PaymentDatabaseReset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +26,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -50,6 +53,9 @@ class PaymentAuthzIT {
     @Autowired
     PaymentStatusHistoryRepository paymentStatusHistoryRepository;
 
+    @Autowired
+    DataSource dataSource;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
@@ -61,8 +67,7 @@ class PaymentAuthzIT {
 
     @BeforeEach
     void clean() {
-        paymentStatusHistoryRepository.deleteAll();
-        paymentRepository.deleteAll();
+        PaymentDatabaseReset.truncateAll(dataSource);
     }
 
     @Test
@@ -87,7 +92,8 @@ class PaymentAuthzIT {
         PaymentEntity payment = seedPayment(merchantId);
 
         mockMvc.perform(asMerchant(get("/api/v1/payments/{id}", payment.getId()), merchantId))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     @Test
@@ -105,7 +111,8 @@ class PaymentAuthzIT {
         PaymentEntity payment = seedPayment(merchantId);
 
         mockMvc.perform(asOps(get("/api/v1/payments/{id}/trail", payment.getId())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     private PaymentEntity seedPayment(UUID merchantId) {

@@ -31,7 +31,7 @@ tags:
     description: Inbound provider webhooks.
 
 paths:
-  /payments:
+  /payments/charge:
     post:
       tags: [payments]
       operationId: createPayment
@@ -66,17 +66,12 @@ paths:
             X-RateLimit-Reset: { $ref: "#/components/headers/XRateLimitReset" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Payment" }
+              schema: { $ref: "#/components/schemas/ChargeResponse" }
               example:
                 payment_id: "6f3a1c2e-0b7d-4e9a-9c11-2a4b6d8e0f12"
-                merchant_id: "b1a2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
                 status: "COMPLETED"
-                amount_cents: 4200
-                currency: "USD"
-                provider: "stripe"
-                risk: { score: 0.12, recommendation: "APPROVE", model_version: "rules-v1.0.0" }
+                provider: "MOCKPAY"
                 trail_id: "6f3a1c2e-0b7d-4e9a-9c11-2a4b6d8e0f12"
-                created_at: "2026-07-12T10:00:00Z"
         "400": { $ref: "#/components/responses/ValidationFailed" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -87,6 +82,8 @@ paths:
         requests: 10
         per: second
         scope: user
+
+  /payments:
     get:
       tags: [payments]
       operationId: listPayments
@@ -280,7 +277,7 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: string, minLength: 1, maxLength: 128 }
 
   headers:
     XRateLimitLimit:
@@ -388,6 +385,14 @@ components:
         amount_cents: { type: integer, minimum: 1 }
         reason: { type: string, maxLength: 128 }
       additionalProperties: false
+    ChargeResponse:
+      type: object
+      required: [payment_id, status, trail_id]
+      properties:
+        payment_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        provider: { type: string, enum: [MOCKPAY, STRIPE] }
+        trail_id: { type: string, format: uuid }
     RiskSummary:
       type: object
       required: [score, recommendation, model_version]
@@ -447,6 +452,7 @@ components:
       required: [transaction_id, score, recommendation, contributing_factors, model_version, created_at]
       properties:
         transaction_id: { type: string, format: uuid }
+        merchant_id: { type: string, format: uuid }
         score: { type: number, minimum: 0, maximum: 1 }
         recommendation: { type: string, enum: [APPROVE, REVIEW, BLOCK] }
         contributing_factors:
@@ -457,11 +463,14 @@ components:
         created_at: { type: string, format: date-time }
     DecisionTrail:
       type: object
-      required: [payment_id, status, risk, attempts]
+      required: [payment_id, status, attempts]
       properties:
         payment_id: { type: string, format: uuid }
         status: { $ref: "#/components/schemas/PaymentStatus" }
-        risk: { $ref: "#/components/schemas/RiskAssessment" }
+        risk:
+          oneOf:
+            - $ref: "#/components/schemas/RiskAssessment"
+            - type: "null"
         attempts:
           type: array
           items: { $ref: "#/components/schemas/PaymentAttempt" }

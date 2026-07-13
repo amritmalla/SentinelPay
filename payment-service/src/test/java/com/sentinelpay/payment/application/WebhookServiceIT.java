@@ -8,6 +8,7 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentEntity;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import com.sentinelpay.payment.infrastructure.persistence.ProcessedWebhookEventRepository;
+import com.sentinelpay.payment.support.PaymentDatabaseReset;
 import com.sentinelpay.payment.support.StripeWebhookTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import javax.sql.DataSource;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +42,9 @@ class WebhookServiceIT {
     @Autowired
     ProcessedWebhookEventRepository processedWebhookEventRepository;
 
+    @Autowired
+    DataSource dataSource;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
@@ -51,10 +56,7 @@ class WebhookServiceIT {
 
     @BeforeEach
     void clean() {
-        processedWebhookEventRepository.deleteAll();
-        paymentAttemptRepository.deleteAll();
-        paymentStatusHistoryRepository.deleteAll();
-        paymentRepository.deleteAll();
+        PaymentDatabaseReset.truncateAll(dataSource);
     }
 
     @Test

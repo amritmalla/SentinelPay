@@ -8,6 +8,7 @@ import com.sentinelpay.risk.config.SecurityConfig;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentEntity;
 import com.sentinelpay.risk.infrastructure.persistence.RiskAssessmentRepository;
 import com.sentinelpay.risk.support.GatewayTestAuth;
+import com.sentinelpay.risk.support.OpenApiContractSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -80,7 +81,8 @@ class FraudAssessmentControllerTest {
                 .andExpect(jsonPath("$.recommendation").value("APPROVE"))
                 .andExpect(jsonPath("$.contributing_factors[0]").value("no_risk_signals"))
                 .andExpect(jsonPath("$.model_version").value("rules-v1.0.0"))
-                .andExpect(jsonPath("$.fallback_used").value(false));
+                .andExpect(jsonPath("$.fallback_used").value(false))
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     @Test
