@@ -409,6 +409,46 @@ public class PaymentTransactionService {
         }
     }
 
+    @Transactional
+    public void completeFromWebhook(
+            UUID paymentId, Provider provider, String providerRef, short attemptNumber) {
+        PaymentEntity payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+        if (payment.getStatus() != PaymentStatus.AUTHORIZING) {
+            return;
+        }
+        completePayment(paymentId, provider, providerRef, attemptNumber, chargeCommandForPayment(paymentId));
+    }
+
+    @Transactional
+    public void markRefundedFromWebhook(UUID paymentId) {
+        PaymentEntity payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return;
+        }
+        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+            transition(payment, PaymentStatus.REFUND_PENDING);
+        }
+        if (payment.getStatus() == PaymentStatus.REFUND_PENDING) {
+            transition(payment, PaymentStatus.REFUNDED);
+        }
+    }
+
+    ChargeCommand chargeCommandForPayment(UUID paymentId) {
+        PaymentEntity payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+        IdempotencyKeyEntity key = idempotencyKeyRepository.findByPaymentId(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Idempotency key not found for payment: " + paymentId));
+        return new ChargeCommand(
+                payment.getMerchantId(),
+                payment.getAmountCents(),
+                payment.getCurrency(),
+                "webhook@reconcile.local",
+                key.getId().getIdempotencyKey(),
+                "webhook-" + paymentId);
+    }
+
     private BeginChargeOutcome resolveExistingKey(IdempotencyKeyEntity existing, String requestHash) {
         if (!existing.getRequestHash().equals(requestHash)) {
             throw new ApiException(ErrorCode.IDEMPOTENCY_CONFLICT, "Idempotency-Key reused with a different request");

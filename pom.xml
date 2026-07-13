@@ -26,6 +26,8 @@
         <protobuf.version>3.25.3</protobuf.version>
         <protobuf-plugin.version>0.6.1</protobuf-plugin.version>
         <os-plugin.version>1.7.1</os-plugin.version>
+        <stripe-java.version>28.4.0</stripe-java.version>
+        <wiremock.version>3.9.1</wiremock.version>
     </properties>
 
     <modules>
@@ -83,6 +85,16 @@
                 <groupId>com.sentinelpay</groupId>
                 <artifactId>sentinelpay-proto</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.stripe</groupId>
+                <artifactId>stripe-java</artifactId>
+                <version>${stripe-java.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.wiremock</groupId>
+                <artifactId>wiremock-standalone</artifactId>
+                <version>${wiremock.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
