@@ -8,6 +8,7 @@ import com.sentinelpay.payment.application.model.RefundResult;
 import com.sentinelpay.payment.config.SecurityConfig;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.support.GatewayTestAuth;
+import com.sentinelpay.payment.support.OpenApiContractSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -66,7 +67,8 @@ class RefundControllerTest {
                 .andExpect(jsonPath("$.amount_cents").value(2500))
                 .andExpect(jsonPath("$.status").value("REFUNDED"))
                 .andExpect(jsonPath("$.reason").value("customer_request"))
-                .andExpect(jsonPath("$.created_at").value("2026-07-12T12:00:00Z"));
+                .andExpect(jsonPath("$.created_at").value("2026-07-12T12:00:00Z"))
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     @Test

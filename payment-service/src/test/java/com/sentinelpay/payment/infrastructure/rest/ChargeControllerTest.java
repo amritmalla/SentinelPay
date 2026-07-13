@@ -11,6 +11,7 @@ import com.sentinelpay.payment.config.SecurityConfig;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
 import com.sentinelpay.payment.support.GatewayTestAuth;
+import com.sentinelpay.payment.support.OpenApiContractSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -65,7 +66,8 @@ class ChargeControllerTest {
                 .andExpect(jsonPath("$.payment_id").value(paymentId.toString()))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.provider").value("MOCKPAY"))
-                .andExpect(jsonPath("$.trail_id").value(paymentId.toString()));
+                .andExpect(jsonPath("$.trail_id").value(paymentId.toString()))
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     @Test

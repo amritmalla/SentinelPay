@@ -11,6 +11,7 @@ import com.sentinelpay.payment.infrastructure.persistence.PaymentRepository;
 import com.sentinelpay.payment.infrastructure.persistence.PaymentStatusHistoryRepository;
 import com.sentinelpay.payment.infrastructure.risk.RiskAssessmentClient;
 import com.sentinelpay.payment.support.GatewayTestAuth;
+import com.sentinelpay.payment.support.OpenApiContractSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -87,7 +88,8 @@ class PaymentAuthzIT {
         PaymentEntity payment = seedPayment(merchantId);
 
         mockMvc.perform(asMerchant(get("/api/v1/payments/{id}", payment.getId()), merchantId))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     @Test
@@ -105,7 +107,8 @@ class PaymentAuthzIT {
         PaymentEntity payment = seedPayment(merchantId);
 
         mockMvc.perform(asOps(get("/api/v1/payments/{id}/trail", payment.getId())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(OpenApiContractSupport.openApi());
     }
 
     private PaymentEntity seedPayment(UUID merchantId) {
