@@ -73,3 +73,8 @@ sentinelpay:
     sweep:
       delay-ms: ${RECONCILIATION_SWEEP_DELAY_MS:30000}
       cutoff-seconds: ${RECONCILIATION_SWEEP_CUTOFF_SECONDS:30}
+  providers:
+    stripe:
+      mode: ${STRIPE_MODE:stub}
+      api-key: ${STRIPE_API_KEY:sk_test_placeholder}
+      base-url: ${STRIPE_BASE_URL:https://api.stripe.com}

@@ -13,4 +13,6 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttemptEn
     Optional<PaymentAttemptEntity> findByPaymentIdAndDownstreamKey(UUID paymentId, String downstreamKey);
 
     Optional<PaymentAttemptEntity> findByPaymentIdAndAttemptNumber(UUID paymentId, short attemptNumber);
+
+    Optional<PaymentAttemptEntity> findByProviderRef(String providerRef);
 }
