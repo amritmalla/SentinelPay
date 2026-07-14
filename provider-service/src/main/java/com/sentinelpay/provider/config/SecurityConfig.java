@@ -25,7 +25,7 @@ public class SecurityConfig {
                 .addFilterBefore(gatewayIdentityFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/providers/**").hasAuthority("OPS")
-                        .requestMatchers(EndpointRequest.to(HealthEndpoint.class, InfoEndpoint.class)).permitAll()
+                        .requestMatchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
                         .requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().denyAll())

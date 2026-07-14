@@ -42,7 +42,7 @@ public class SecurityConfig {
                 .securityMatcher(EndpointRequest.toAnyEndpoint())
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(ex -> ex
-                        .matchers(EndpointRequest.to(HealthEndpoint.class, InfoEndpoint.class)).permitAll()
+                        .matchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
                         .anyExchange().authenticated())
                 .httpBasic(withDefaults());
         return http.build();

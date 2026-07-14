@@ -101,7 +101,7 @@ class TrailServiceIT {
                 List.of("no_risk_signals"),
                 "rules-v1.0.0",
                 false);
-        when(riskAssessmentClient.fetch(paymentId)).thenReturn(Optional.of(risk));
+        when(riskAssessmentClient.fetch(paymentId, payment.getMerchantId())).thenReturn(Optional.of(risk));
 
         DecisionTrail trail = trailService.trail(paymentId);
 
@@ -123,7 +123,7 @@ class TrailServiceIT {
         payment = paymentRepository.saveAndFlush(payment);
         UUID paymentId = payment.getId();
 
-        when(riskAssessmentClient.fetch(any())).thenReturn(Optional.empty());
+        when(riskAssessmentClient.fetch(any(), any())).thenReturn(Optional.empty());
 
         DecisionTrail trail = trailService.trail(paymentId);
 

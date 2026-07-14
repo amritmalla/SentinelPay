@@ -14,6 +14,7 @@
 - [Prerequisites](#prerequisites)
 - [Build and test](#build-and-test)
 - [Run locally](#run-locally)
+- [Demo](#demo)
 - [Using the API](#using-the-api)
 - [Observability](#observability)
 - [Status](#status)
@@ -129,45 +130,119 @@ Alternatively, add `-am` when starting a service so Maven rebuilds its module de
 
 ## Run locally
 
-The five services run on the host (from your IDE or Maven); their dependencies run in Docker.
+### One command (recommended for reviewers)
 
-**1. Start dependencies** (Postgres ×4, Redis, Kafka, MailHog, and the Prometheus/Tempo/Grafana stack):
+From a clean clone, build and start **everything** — infra, observability stack, and all five services:
 
 ```bash
-docker compose up -d
+docker compose up --build
 # or: make up
 ```
 
-**2. Run the services.** The gateway must use the `dev` profile so the local token endpoint (`/dev/token`) is available. No trace-export env vars are required — metrics and logs are always on; trace export to Tempo is opt-in (see [Observability](#observability)).
+Gateway is on **[http://localhost:8080](http://localhost:8080)**. Grafana, Tempo, and MailHog start automatically. The compose stack uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever are available — **demo posture only; never ship `dev` to production.**
+
+Run the narrated walkthrough:
+
+```bash
+bash scripts/demo.sh      # Git Bash / macOS / Linux
+# or: pwsh scripts/demo.ps1
+# or: make demo
+```
+
+### Develop a single service (IDE / Maven)
+
+Start **infra only**, then run the service you are working on from the host:
+
+```bash
+make up-infra
+# or: docker compose up -d postgres-payments postgres-risk postgres-provider postgres-notifications redis zookeeper kafka mailhog prometheus tempo grafana
+```
+
+When services run on the host, point Prometheus at them by swapping the scrape config to [prometheus-ide.yml](ops/observability/prometheus/prometheus-ide.yml) in `docker-compose.yml` (full-stack compose already uses in-network service names).
+
+Run services with `-am` so shared modules rebuild from the reactor:
 
 ```bash
 ./mvnw -q -pl api-gateway     -am spring-boot:run -Dspring-boot.run.profiles=dev
-./mvnw -q -pl payment-service -am spring-boot:run
+./mvnw -q -pl payment-service -am spring-boot:run -Dspring-boot.run.profiles=dev
 ./mvnw -q -pl risk-service    -am spring-boot:run
 ./mvnw -q -pl provider-service -am spring-boot:run
 ./mvnw -q -pl notification-service -am spring-boot:run
 ```
 
-Add `-Dspring-boot.run.profiles=dev` on any service for human-readable console logs instead of JSON (see `logback-spring.xml`).
-
-`make run-payment`, `make run-risk`, etc. are shortcuts (the gateway shortcut runs without the `dev` profile — add it as above if you want `/dev/token`). To send traces to Tempo, add the `observability` profile on every service (gateway: `dev,observability`).
+Add `observability` to export traces to Tempo (see [Observability](#observability)). `make run-*` shortcuts wrap the above.
 
 **Ports**
 
 | Component | Host port | Notes |
 | --- | --- | --- |
-| API Gateway | 8080 | Public entry point (JWT) |
+| API Gateway | 8080 | Public entry point (JWT); containerized in full-stack mode |
 | Payment Service | 8082 | System of record |
 | Risk Service | 8083 (REST), 9091 (gRPC) | Risk scoring |
 | Notification Service | 8084 | Event consumer |
 | Provider Service | 8085 | Provider health/abstraction |
 | Postgres (payments / risk / provider / notifications) | 5434 / 5435 / 5436 / 5437 | DB-per-service |
 | Redis | 6379 | Velocity counters, rate limits |
-| Kafka | 9092 | Event bus |
+| Kafka | 9092 | Event bus (host); containers use `kafka:29092` internally |
 | MailHog SMTP / UI | 1025 / 8025 | Local email capture |
 | Prometheus | 9090 | Metrics + alert rules |
 | Tempo | 4318 (OTLP), 3200 | Trace backend |
 | Grafana | 3000 | Dashboards (anonymous viewer) |
+
+## Demo
+
+Three acts, driven by [scripts/demo.sh](scripts/demo.sh) against the full stack:
+
+| Act | What happens | What to observe |
+| --- | --- | --- |
+| **1. Happy path** | Charge $25 → `COMPLETED` via MockPay | Decision trail; receipt in [MailHog](http://localhost:8025) |
+| **2. Failover** | Program MockPay → `HARD_FAIL`, charge again | `COMPLETED` via Stripe stub; Grafana **Correctness** — `recovered_authorization_total` ↑, `double_capture_total` stays **0** |
+| **3. Risk block** | Six $1,500 charges for the same email | Velocity + amount cross the 0.70 block threshold; trail shows `amount:` and `velocity_1h:` factors |
+
+Automated twin: `npx newman run postman/SentinelPay.postman_collection.json -e postman/SentinelPay.local.postman_environment.json`
+
+### Charge sequence (synchronous critical path)
+
+```mermaid
+sequenceDiagram
+    participant M as Merchant
+    participant G as API Gateway
+    participant P as Payment Service
+    participant R as Risk Service
+    participant Pr as Provider (MockPay/Stripe)
+    participant K as Kafka
+
+    M->>G: POST /payments/charge + Idempotency-Key
+    Note over G,P: ADR-0002 synchronous path
+    G->>P: REST (identity headers)
+    P->>P: Idempotency insert (ADR-0005)
+    P->>R: gRPC AssessRisk (ADR-0003)
+    R-->>P: score + factors (ADR-0007)
+    alt BLOCK
+        P-->>G: 201 BLOCKED
+    else APPROVE
+        P->>Pr: authorize/capture (ADR-0006)
+        alt HARD_FAIL
+            Note over P: reconcile ambiguous first (ADR-0005)
+            P->>Pr: failover to next provider
+        end
+        P->>P: payment + attempt + outbox (ADR-0008, ADR-0010)
+        P-->>G: 201 COMPLETED
+        P--)K: payment.completed (outbox relay)
+    end
+```
+
+### How it works → why (ADR map)
+
+| Headline | Mechanism | ADR |
+| --- | --- | --- |
+| No double-charge | Idempotency-key-first + ambiguous-timeout reconciliation before failover | [0005](docs/architecture/adrs/0005-exactly-once-capture-idempotency.md) |
+| Reliable side effects | Transactional outbox → Kafka | [0008](docs/architecture/adrs/0008-transactional-outbox.md) |
+| Safe concurrent updates | Optimistic-concurrency state machine on `payment` | [0010](docs/architecture/adrs/0010-payment-optimistic-concurrency.md) |
+| Fast risk on the hot path | gRPC to Risk Service (100 ms deadline) | [0003](docs/architecture/adrs/0003-grpc-for-risk-on-critical-path.md) |
+| Provider swap without rewrite | `PaymentProvider` abstraction; MockPay + Stripe slot | [0006](docs/architecture/adrs/0006-provider-abstraction-mockpay.md) |
+| Explainable trail | API composition across Payment + Risk (no cross-DB join) | [0004](docs/architecture/adrs/0004-fold-decisioning-into-payment.md) |
+
 
 ## Using the API
 
@@ -201,6 +276,7 @@ Repeating the same `Idempotency-Key` returns the original result instead of char
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/dev/token` | none (dev) | Mint a local JWT (`role`, `merchant_id`) |
+| `POST` | `/dev/providers/{provider}/program` | none (dev) | Program provider outcomes for demo failover (`{"outcomes":["HARD_FAIL"]}`) |
 | `POST` | `/api/v1/payments/charge` | MERCHANT | Create/charge a payment (`Idempotency-Key` header) |
 | `GET` | `/api/v1/payments` | MERCHANT | List payments (merchant-scoped, paginated) |
 | `GET` | `/api/v1/payments/{id}` | MERCHANT | Retrieve a payment |
@@ -258,7 +334,7 @@ Full reference: [docs/architecture/observability.md](docs/architecture/observabi
 | Security | Delivered — gateway JWT auth, identity injection, merchant-scoping, default-deny ops |
 | Quality gate | Delivered — CI (`./mvnw verify`), REST contract tests, coverage, OpenAPI lint |
 | Observability | Delivered — RED + business metrics, distributed tracing, SLO burn-rate alerts, dashboards |
-| Packaging | In progress — one-command full-system run and demo polish |
+| Packaging | Delivered — one-command `docker compose up`, narrated demo, hardened images |
 
 ## Contributing and license
 

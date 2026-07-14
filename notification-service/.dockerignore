@@ -5,3 +5,5 @@
 docs
 *.md
 build-*.log
+secrets/
+*.env

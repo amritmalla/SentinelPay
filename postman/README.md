@@ -12,15 +12,8 @@ End-to-end API tests for the SentinelPay gateway, covering the charge lifecycle,
 
 ## Prerequisites
 
-1. Dependencies up: `docker compose up -d` (from repo root).
-2. All five services running, with the **gateway on the `dev` profile** so `/dev/token` is available:
-   ```bash
-   ./mvnw -q -pl api-gateway spring-boot:run -Dspring-boot.run.profiles=dev
-   ./mvnw -q -pl payment-service spring-boot:run
-   ./mvnw -q -pl risk-service spring-boot:run
-   ./mvnw -q -pl provider-service spring-boot:run
-   ./mvnw -q -pl notification-service spring-boot:run
-   ```
+1. Dependencies up: `docker compose up --build` (full stack) or `make up-infra` (IDE dev).
+2. For Newman/Postman only: gateway on the `dev` profile (included automatically in full-stack compose).
 
 ## Run in Postman
 

@@ -28,7 +28,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/payments/*/trail").hasAuthority("OPS")
                         .requestMatchers("/api/v1/payments/**").hasAuthority("MERCHANT")
-                        .requestMatchers(EndpointRequest.to(HealthEndpoint.class, InfoEndpoint.class)).permitAll()
+                        .requestMatchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
                         .requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated()
                         .anyRequest().denyAll())
                 .httpBasic(withDefaults());
