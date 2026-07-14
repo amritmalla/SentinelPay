@@ -139,7 +139,7 @@ class PaymentAuthzIT {
         @Primary
         RiskAssessmentClient stubRiskAssessmentClient() {
             RiskAssessmentClient client = mock(RiskAssessmentClient.class);
-            when(client.fetch(any())).thenReturn(Optional.empty());
+            when(client.fetch(any(), any())).thenReturn(Optional.empty());
             return client;
         }
     }

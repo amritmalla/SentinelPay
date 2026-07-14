@@ -43,7 +43,7 @@ public class TrailService {
         return new DecisionTrail(
                 payment.getId(),
                 payment.getStatus(),
-                riskAssessmentClient.fetch(paymentId).orElse(null),
+                riskAssessmentClient.fetch(paymentId, payment.getMerchantId()).orElse(null),
                 attempts);
     }
 

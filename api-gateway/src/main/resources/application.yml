@@ -28,6 +28,12 @@ spring:
           uri: ${PROVIDER_SERVICE_URI:http://localhost:8085}
           predicates:
             - Path=/api/v1/providers/**
+        # Dev-only demo lever (program MockPay behaviour). Reachable only under the `dev` profile,
+        # which permits /dev/** at the gateway; otherwise the gateway's default-deny rejects it.
+        - id: payment-dev-providers
+          uri: ${PAYMENT_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/dev/providers/**
   lifecycle:
     timeout-per-shutdown-phase: 30s
 

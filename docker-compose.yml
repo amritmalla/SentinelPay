@@ -1,6 +1,17 @@
-# Local development infrastructure for SentinelPay.
-# Service shells build and test with Testcontainers (their own Postgres); this compose
-# file provides the shared dependencies used once feature wiring (Kafka, Redis, mail) lands.
+# SentinelPay — full local stack (infra + all five services).
+# One command:  docker compose up --build
+# Infra only (IDE dev):  make up-infra
+x-service-healthcheck: &service-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 10
+  start_period: 90s
+
+x-demo-env: &demo-env
+  GATEWAY_SHARED_SECRET: demo-gateway-secret
+  JWT_SECRET: sentinelpay-demo-jwt-secret-not-for-production-use
+  OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
 services:
   postgres-payments:
     image: postgres:15-alpine
@@ -9,7 +20,12 @@ services:
       POSTGRES_USER: sentinelpay
       POSTGRES_PASSWORD: sentinelpay_secret
     ports: ["5434:5432"]
-    volumes: ["payments-data:/var/lib/postgresql/data"]
+    volumes: [payments-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinelpay -d sentinelpay_payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres-risk:
     image: postgres:15-alpine
@@ -18,7 +34,12 @@ services:
       POSTGRES_USER: sentinelpay
       POSTGRES_PASSWORD: sentinelpay_secret
     ports: ["5435:5432"]
-    volumes: ["risk-data:/var/lib/postgresql/data"]
+    volumes: [risk-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinelpay -d sentinelpay_risk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres-provider:
     image: postgres:15-alpine
@@ -27,7 +48,12 @@ services:
       POSTGRES_USER: sentinelpay
       POSTGRES_PASSWORD: sentinelpay_secret
     ports: ["5436:5432"]
-    volumes: ["provider-data:/var/lib/postgresql/data"]
+    volumes: [provider-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinelpay -d sentinelpay_provider"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   postgres-notifications:
     image: postgres:15-alpine
@@ -36,11 +62,21 @@ services:
       POSTGRES_USER: sentinelpay
       POSTGRES_PASSWORD: sentinelpay_secret
     ports: ["5437:5432"]
-    volumes: ["notifications-data:/var/lib/postgresql/data"]
+    volumes: [notifications-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinelpay -d sentinelpay_notifications"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -59,6 +95,12 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   mailhog:
     image: mailhog/mailhog
@@ -67,8 +109,6 @@ services:
   prometheus:
     image: prom/prometheus:v2.51.2
     ports: ["9090:9090"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./ops/observability/prometheus/rules.yaml:/etc/prometheus/rules.yaml:ro
@@ -97,6 +137,99 @@ services:
       - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
     depends_on: [prometheus, tempo]
+
+  risk-service:
+    build: { context: ., dockerfile: risk-service/Dockerfile }
+    depends_on:
+      postgres-risk: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      <<: *demo-env
+      SPRING_PROFILES_ACTIVE: observability
+      RISK_DB_URL: jdbc:postgresql://postgres-risk:5432/sentinelpay_risk
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:29092
+    ports: ["8083:8083", "9091:9091"]
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/readiness"]
+
+  provider-service:
+    build: { context: ., dockerfile: provider-service/Dockerfile }
+    depends_on:
+      postgres-provider: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      <<: *demo-env
+      SPRING_PROFILES_ACTIVE: observability
+      PROVIDER_DB_URL: jdbc:postgresql://postgres-provider:5432/sentinelpay_provider
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: kafka:29092
+    ports: ["8085:8085"]
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/readiness"]
+
+  payment-service:
+    build: { context: ., dockerfile: payment-service/Dockerfile }
+    depends_on:
+      postgres-payments: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      risk-service: { condition: service_healthy }
+    environment:
+      <<: *demo-env
+      SPRING_PROFILES_ACTIVE: dev,observability
+      PAYMENT_DB_URL: jdbc:postgresql://postgres-payments:5432/sentinelpay_payments
+      KAFKA_BOOTSTRAP: kafka:29092
+      RISK_GRPC_TARGET: risk-service:9091
+      # Trail composition fetches risk factors over HTTP from risk-service.
+      RISK_HTTP_BASE_URL: http://risk-service:8083
+      # The 100 ms production deadline fails fast to the fallback; the containerised risk call does
+      # Redis + DB work inside the request, so give the demo headroom to exercise the real pipeline.
+      RISK_GRPC_DEADLINE_MS: "2000"
+    ports: ["8082:8082"]
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/readiness"]
+
+  notification-service:
+    build: { context: ., dockerfile: notification-service/Dockerfile }
+    depends_on:
+      postgres-notifications: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      mailhog: { condition: service_started }
+    environment:
+      <<: *demo-env
+      SPRING_PROFILES_ACTIVE: observability
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres-notifications:5432/sentinelpay_notifications
+      KAFKA_BOOTSTRAP: kafka:29092
+      MAIL_HOST: mailhog
+      MAIL_PORT: 1025
+    ports: ["8084:8084"]
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/readiness"]
+
+  api-gateway:
+    build: { context: ., dockerfile: api-gateway/Dockerfile }
+    depends_on:
+      redis: { condition: service_healthy }
+      payment-service: { condition: service_healthy }
+      risk-service: { condition: service_healthy }
+      provider-service: { condition: service_healthy }
+    environment:
+      <<: *demo-env
+      SPRING_PROFILES_ACTIVE: dev,observability
+      REDIS_HOST: redis
+      PAYMENT_SERVICE_URI: http://payment-service:8082
+      RISK_SERVICE_URI: http://risk-service:8083
+      PROVIDER_SERVICE_URI: http://provider-service:8085
+    ports: ["8080:8080"]
+    healthcheck:
+      <<: *service-healthcheck
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
 
 volumes:
   payments-data:
