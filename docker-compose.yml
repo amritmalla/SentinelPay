@@ -190,18 +190,22 @@ services:
     depends_on:
       postgres-payments: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      redis: { condition: service_healthy }
       risk-service: { condition: service_healthy }
     environment:
       <<: *demo-env
       SPRING_PROFILES_ACTIVE: dev,observability
       PAYMENT_DB_URL: jdbc:postgresql://postgres-payments:5432/sentinelpay_payments
       KAFKA_BOOTSTRAP: kafka:29092
+      REDIS_HOST: redis
       RISK_GRPC_TARGET: risk-service:9091
       # Trail composition fetches risk factors over HTTP from risk-service.
       RISK_HTTP_BASE_URL: http://risk-service:8083
       # The 100 ms production deadline fails fast to the fallback; the containerised risk call does
       # Redis + DB work inside the request, so give the demo headroom to exercise the real pipeline.
       RISK_GRPC_DEADLINE_MS: "2000"
+      ROUTING_POLICY: bandit
+      ROUTING_BREAKER_ENABLED: "true"
     ports: ["8082:8082"]
     healthcheck:
       <<: *service-healthcheck

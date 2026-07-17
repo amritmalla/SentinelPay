@@ -58,15 +58,26 @@ public class ChargeMetrics {
     }
 
     public <T> T recordProviderCall(Provider provider, String op, Supplier<T> call) {
+        return recordProviderCallTimed(provider, op, call).value();
+    }
+
+    public <T> TimedResult<T> recordProviderCallTimed(Provider provider, String op, Supplier<T> call) {
         Timer timer = Timer.builder("sentinelpay_provider_call_duration_seconds")
                 .tag("provider", provider.dbValue())
                 .tag("op", op)
                 .register(registry);
         long start = System.nanoTime();
         try {
-            return call.get();
+            return new TimedResult<>(call.get(), elapsedMillis(start));
         } finally {
             timer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
         }
+    }
+
+    private static long elapsedMillis(long startNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+    }
+
+    public record TimedResult<T>(T value, long elapsedMs) {
     }
 }

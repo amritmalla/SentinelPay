@@ -10,10 +10,7 @@ class PaymentServiceApplicationTests {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
-        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        PaymentTestContainers.register(registry);
     }
 
     @Test

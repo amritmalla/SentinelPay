@@ -11,5 +11,6 @@ public record DecisionTrail(
         @JsonProperty("payment_id") UUID paymentId,
         PaymentStatus status,
         RiskTrailView risk,
+        RoutingTrailView routing,
         List<PaymentAttemptView> attempts) {
 }
