@@ -1,0 +1,198 @@
+{
+  "model_version": "ml-v1.0.0+2a2a534d",
+  "dataset_hash": "2a2a534d296749e905f544ef739c848fdf2e71675d7205f903a473d3f376a68c",
+  "row_count": 20000,
+  "seed": 42,
+  "params": {
+    "num_leaves": 31,
+    "learning_rate": 0.05,
+    "min_child_samples": 20,
+    "max_depth": 6,
+    "scale_pos_weight": 26.83300198807157
+  },
+  "calibration_method": "isotonic",
+  "training_timestamp": "2026-07-17T04:28:17.562554+00:00",
+  "feature_names": [
+    "log_amount_cents",
+    "hour_sin",
+    "hour_cos",
+    "is_night",
+    "hour_known",
+    "geo_mismatch",
+    "geo_known",
+    "disposable_email",
+    "domain_frequency",
+    "velocity_last_hour",
+    "night_x_velocity",
+    "geo_x_log_amount",
+    "disposable_x_velocity",
+    "cat_retail",
+    "cat_travel",
+    "cat_digital",
+    "cat_food",
+    "cat_services",
+    "cat_unknown"
+  ],
+  "metrics": {
+    "roc_auc": 0.8584191296426112,
+    "pr_auc": 0.6946072160178279,
+    "at_0.30": {
+      "threshold": 0.3,
+      "precision": 0.8875,
+      "recall": 0.6635514018691588,
+      "alert_rate": 0.02666666666666667
+    },
+    "at_0.70": {
+      "threshold": 0.7,
+      "precision": 0.9838709677419355,
+      "recall": 0.5700934579439252,
+      "alert_rate": 0.020666666666666667
+    },
+    "per_archetype_recall_at_0.30": {
+      "card_testing": 1.0,
+      "night_owl": 1.0,
+      "velocity_burst": 1.0,
+      "geo_mismatch": 0.8571428571428571,
+      "amount_outlier": 0.8421052631578947
+    },
+    "lr_baseline": {
+      "roc_auc": 0.8513265988480089,
+      "pr_auc": 0.6789601158577746,
+      "features": [
+        "log_amount_cents",
+        "hour_sin",
+        "hour_cos",
+        "is_night",
+        "hour_known",
+        "geo_mismatch",
+        "geo_known",
+        "disposable_email",
+        "domain_frequency",
+        "velocity_last_hour",
+        "cat_retail",
+        "cat_travel",
+        "cat_digital",
+        "cat_food",
+        "cat_services",
+        "cat_unknown"
+      ]
+    },
+    "val_pr_auc_uncalibrated": 0.6909641503778792
+  },
+  "top_feature_importances": [
+    {
+      "feature": "hour_sin",
+      "importance": 5
+    },
+    {
+      "feature": "hour_cos",
+      "importance": 4
+    },
+    {
+      "feature": "log_amount_cents",
+      "importance": 3
+    },
+    {
+      "feature": "velocity_last_hour",
+      "importance": 3
+    },
+    {
+      "feature": "geo_x_log_amount",
+      "importance": 2
+    },
+    {
+      "feature": "cat_travel",
+      "importance": 2
+    },
+    {
+      "feature": "geo_mismatch",
+      "importance": 1
+    },
+    {
+      "feature": "disposable_email",
+      "importance": 1
+    },
+    {
+      "feature": "cat_food",
+      "importance": 1
+    },
+    {
+      "feature": "is_night",
+      "importance": 0
+    },
+    {
+      "feature": "hour_known",
+      "importance": 0
+    },
+    {
+      "feature": "geo_known",
+      "importance": 0
+    },
+    {
+      "feature": "domain_frequency",
+      "importance": 0
+    },
+    {
+      "feature": "night_x_velocity",
+      "importance": 0
+    },
+    {
+      "feature": "disposable_x_velocity",
+      "importance": 0
+    }
+  ],
+  "smoke": false,
+  "isotonic_x": [
+    0.03575910075533668,
+    0.05140761315380365,
+    0.054048325898837304,
+    0.05825894754281038,
+    0.09359532460042706,
+    0.10671779406416064,
+    0.12082226871807786,
+    0.12457017439897432,
+    0.12963802029270766,
+    0.13001702417183736,
+    0.13033699615787891
+  ],
+  "isotonic_y": [
+    0.011652542372881356,
+    0.011652542372881356,
+    0.013333333333333334,
+    0.013333333333333334,
+    0.2,
+    0.2,
+    0.5384615384615384,
+    0.5384615384615384,
+    0.875,
+    1.0,
+    1.0
+  ],
+  "score_distribution": {
+    "density": [
+      9.653333333333334,
+      0.0,
+      0.07999999999999997,
+      0.0,
+      0.0,
+      0.05999999999999994,
+      0.0,
+      0.0,
+      0.020000000000000004,
+      0.1866666666666667
+    ],
+    "bin_edges": [
+      0.0,
+      0.1,
+      0.2,
+      0.30000000000000004,
+      0.4,
+      0.5,
+      0.6000000000000001,
+      0.7000000000000001,
+      0.8,
+      0.9,
+      1.0
+    ]
+  }
+}

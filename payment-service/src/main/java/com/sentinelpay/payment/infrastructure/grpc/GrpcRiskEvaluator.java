@@ -27,14 +27,25 @@ public class GrpcRiskEvaluator implements RiskEvaluator {
 
     @Override
     public RiskDecision evaluate(RiskInput input) {
-        RiskScoreRequest request = RiskScoreRequest.newBuilder()
+        RiskScoreRequest.Builder builder = RiskScoreRequest.newBuilder()
                 .setTransactionId(input.transactionId().toString())
                 .setMerchantId(input.merchantId().toString())
                 .setAmountCents(input.amountCents())
                 .setCurrency(input.currency())
                 .setCustomerEmail(input.customerEmail())
-                .setTimestampEpochMs(System.currentTimeMillis())
-                .build();
+                .setTimestampEpochMs(System.currentTimeMillis());
+
+        if (input.merchantCategory() != null && !input.merchantCategory().isBlank()) {
+            builder.setMerchantCategory(input.merchantCategory());
+        }
+        if (input.cardCountry() != null && !input.cardCountry().isBlank()) {
+            builder.setCardCountry(input.cardCountry());
+        }
+        if (input.merchantCountry() != null && !input.merchantCountry().isBlank()) {
+            builder.setMerchantCountry(input.merchantCountry());
+        }
+
+        RiskScoreRequest request = builder.build();
 
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {

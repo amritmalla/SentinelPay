@@ -133,7 +133,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\",\n  \"merchant_category\": \"retail\",\n  \"card_country\": \"US\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/payments/charge",
@@ -168,7 +168,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\",\n  \"merchant_category\": \"retail\",\n  \"card_country\": \"US\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/payments/charge",
@@ -420,7 +420,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\"\n}"
+              "raw": "{\n  \"amount_cents\": 2500,\n  \"currency\": \"USD\",\n  \"customer_email\": \"buyer@example.com\",\n  \"merchant_category\": \"retail\",\n  \"card_country\": \"US\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/payments/charge",

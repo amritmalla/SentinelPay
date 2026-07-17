@@ -86,6 +86,18 @@ class RiskAssessmentWriter {
         if (input.customerEmail() != null) {
             features.put("customerEmail", input.customerEmail());
         }
+        if (input.merchantCategory() != null) {
+            features.put("merchantCategory", input.merchantCategory());
+        }
+        if (input.cardCountry() != null) {
+            features.put("cardCountry", input.cardCountry());
+        }
+        if (input.merchantCountry() != null) {
+            features.put("merchantCountry", input.merchantCountry());
+        }
+        if (input.timestampEpochMs() != null) {
+            features.put("timestampEpochMs", input.timestampEpochMs());
+        }
         return features;
     }
 

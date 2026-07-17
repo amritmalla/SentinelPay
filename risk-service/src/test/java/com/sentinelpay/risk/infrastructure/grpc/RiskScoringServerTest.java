@@ -17,6 +17,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +53,34 @@ class RiskScoringServerTest {
         assertThat(response.getModelVersion()).isEqualTo("rules-v1.0.0");
         assertThat(response.getContributingFactorsList()).containsExactly("amount:120000");
         assertThat(response.getFallbackUsed()).isFalse();
+        assertThat(observer.completed).isTrue();
+    }
+
+    @Test
+    void scoreTransaction_mapsFeatureFieldsIntoScoringInput() {
+        UUID transactionId = UUID.randomUUID();
+        UUID merchantId = UUID.randomUUID();
+        when(riskAssessmentService.assess(any(ScoringInput.class)))
+                .thenReturn(new RiskResult(0.1, "APPROVE", List.of("no_risk_signals"), "rules-v1.0.0"));
+
+        CapturingObserver observer = new CapturingObserver();
+        server.scoreTransaction(RiskScoreRequest.newBuilder()
+                .setTransactionId(transactionId.toString())
+                .setMerchantId(merchantId.toString())
+                .setAmountCents(2_500)
+                .setCurrency("USD")
+                .setCustomerEmail("buyer@example.com")
+                .setMerchantCategory("retail")
+                .setCardCountry("GB")
+                .setMerchantCountry("US")
+                .setTimestampEpochMs(1_700_000_000_000L)
+                .build(), observer);
+
+        verify(riskAssessmentService).assess(argThat(input ->
+                "retail".equals(input.merchantCategory())
+                        && "GB".equals(input.cardCountry())
+                        && "US".equals(input.merchantCountry())
+                        && Long.valueOf(1_700_000_000_000L).equals(input.timestampEpochMs())));
         assertThat(observer.completed).isTrue();
     }
 

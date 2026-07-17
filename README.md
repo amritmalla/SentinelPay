@@ -1,8 +1,21 @@
+<div align="center">
+
 # SentinelPay
 
-**Adaptive Payment Intelligence Platform** — an intelligence and decision layer between merchants and payment providers. Rather than forwarding a charge to a single provider, SentinelPay evaluates every payment and chooses the safest, most reliable way to execute it.
+**Adaptive Payment Intelligence Platform**
 
-> **v1 scope (this build):** resilient **multi-provider routing and failover** — risk-evaluate → decide → route to a healthy provider → automatically fail over on failure, with **guaranteed no double-charge** and a fully **explainable decision trail**. The broader platform vision is the north star, sequenced after v1. See [docs/product/vision/](docs/product/vision/) and [docs/product/PRD.md](docs/product/PRD.md).
+Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
+
+[![Stars](https://img.shields.io/github/stars/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/stargazers)
+[![Forks](https://img.shields.io/github/forks/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/forks)
+[![Issues](https://img.shields.io/github/issues/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/issues)
+[![License](https://img.shields.io/github/license/amritmalla/SentinelPay?style=flat-square)](LICENSE)
+
+</div>
+
+**SentinelPay** is an intelligent payment orchestration layer between merchants and multiple payment providers. Instead of blindly forwarding charges, it evaluates risk, selects the best healthy provider, and fails over on failure — with a strict no-double-charge guarantee and an explainable decision trail.
+
+> **v1 scope (this build):** resilient **multi-provider routing and failover** — risk-evaluate → decide → route → fail over, with **guaranteed no double-charge** and a fully **explainable decision trail**. Broader platform vision is sequenced after v1. See [docs/product/vision/](docs/product/vision/) and [docs/product/PRD.md](docs/product/PRD.md).
 
 ## Table of contents
 
@@ -32,7 +45,7 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 | [Backend Architecture](docs/architecture/backend-architecture.md) | Service contracts, domain model, flows |
 | [OpenAPI](docs/architecture/contracts/openapi.yaml) | Public and ops REST contract (OpenAPI 3.1, lint-clean) |
 | [Observability](docs/architecture/observability.md) | Signals, metric catalog, SLOs, alerts, dashboards |
-| [ADRs](docs/architecture/adrs/) | Architecture decision records 0001–0011 |
+| [ADRs](docs/architecture/adrs/) | Architecture decision records 0001–0012 |
 
 ## Features
 
@@ -94,13 +107,13 @@ Maven multi-module layout (`sentinelpay-parent`):
 
 | Layer | Technologies |
 | --- | --- |
-| Runtime | Java 17, Spring Boot 3.2, Spring Cloud Gateway |
+| Language / runtime | Java 17, Spring Boot 3.2, Spring Cloud Gateway |
 | Data | PostgreSQL 15, Redis 7, Flyway |
+| Communication | REST, gRPC + Protocol Buffers |
 | Messaging | Apache Kafka, transactional outbox |
-| RPC | gRPC / Protocol Buffers |
 | Observability | Micrometer, OpenTelemetry, Prometheus, Grafana, Tempo |
 | Testing | Testcontainers, JUnit 5 |
-| Build | Maven (multi-module), Maven Wrapper |
+| Build / infra | Maven (multi-module), Maven Wrapper, Docker Compose |
 
 ## Prerequisites
 
@@ -132,16 +145,14 @@ Alternatively, add `-am` when starting a service so Maven rebuilds its module de
 
 ### One command (recommended for reviewers)
 
-From a clean clone, build and start **everything** — infra, observability stack, and all five services:
-
 ```bash
+git clone https://github.com/amritmalla/SentinelPay.git
+cd SentinelPay
 docker compose up --build
 # or: make up
 ```
 
-Gateway is on **[http://localhost:8080](http://localhost:8080)**. Grafana, Tempo, and MailHog start automatically. The compose stack uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever are available — **demo posture only; never ship `dev` to production.**
-
-Run the narrated walkthrough:
+That starts infra, the observability stack, and all five services. Gateway: **[http://localhost:8080](http://localhost:8080)**. Grafana, Tempo, and MailHog come up with the stack. Compose uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever work — **demo posture only; never ship `dev` to production.**
 
 ```bash
 bash scripts/demo.sh      # Git Bash / macOS / Linux
@@ -264,7 +275,7 @@ curl -s localhost:8080/api/v1/payments/charge \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: order-1001' \
-  -d '{"amount_cents":2500,"currency":"USD","customer_email":"buyer@example.com"}'
+  -d '{"amount_cents":2500,"currency":"USD","customer_email":"buyer@example.com","merchant_category":"retail","card_country":"US"}'
 # → 201
 # { "payment_id": "…", "status": "COMPLETED", "provider": "MOCKPAY", "trail_id": "…" }
 ```

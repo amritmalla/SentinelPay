@@ -24,6 +24,7 @@ Write-Host "   merchant_id=$MerchantId`n"
 Write-Host "▶ Act 1 — Happy path: charge `$25 via MockPay…"
 $happy = Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
     amount_cents = 2500; currency = "USD"; customer_email = "buyer@example.com"
+    merchant_category = "retail"; card_country = "US"
 } @{
     Authorization = "Bearer $Token"
     "Idempotency-Key" = "demo-happy-1"
@@ -53,6 +54,7 @@ $blocked = $null
 for ($i = 1; $i -le 6; $i++) {
     $result = Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
         amount_cents = 150000; currency = "USD"; customer_email = $DemoEmail
+        merchant_category = "retail"; card_country = "GB"
     } @{
         Authorization = "Bearer $Token"
         "Idempotency-Key" = "demo-risk-$i"
@@ -62,7 +64,7 @@ for ($i = 1; $i -le 6; $i++) {
 }
 if (-not $blocked) { throw "Expected BLOCKED by charge 6" }
 $blockedTrail = Invoke-RestMethod -Uri "$BaseUrl/api/v1/payments/$($blocked.payment_id)/trail" -Headers @{ Authorization = "Bearer $OpsToken" }
-Write-Host "   Blocked trail:"; $blockedTrail | ConvertTo-Json -Depth 6
+Write-Host "   Blocked trail (card_country=GB vs merchant default US):"; $blockedTrail | ConvertTo-Json -Depth 6
 
 Write-Host "`n▶ Where to look: Grafana http://localhost:3000 | Tempo demo-corr-happy | MailHog http://localhost:8025"
 Write-Host "✓ Demo complete."

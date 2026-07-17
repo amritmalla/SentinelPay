@@ -27,6 +27,13 @@ scrape_configs:
         labels:
           service: risk-service
 
+  - job_name: risk-model
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["risk-model:8090"]
+        labels:
+          service: risk-model
+
   - job_name: provider-service
     metrics_path: /actuator/prometheus
     static_configs:
