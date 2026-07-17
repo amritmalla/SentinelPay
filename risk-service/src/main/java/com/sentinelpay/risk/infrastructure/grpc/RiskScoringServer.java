@@ -34,7 +34,11 @@ public class RiskScoringServer extends RiskScoringServiceGrpc.RiskScoringService
                     request.getAmountCents(),
                     request.getCurrency(),
                     request.getCustomerEmail(),
-                    0);
+                    0,
+                    blankToNull(request.getMerchantCategory()),
+                    blankToNull(request.getCardCountry()),
+                    blankToNull(request.getMerchantCountry()),
+                    request.getTimestampEpochMs() == 0 ? null : request.getTimestampEpochMs());
 
             RiskResult result = riskAssessmentService.assess(input);
 
@@ -53,5 +57,12 @@ public class RiskScoringServer extends RiskScoringServiceGrpc.RiskScoringService
             log.error("Risk scoring failed", ex);
             observer.onError(Status.INTERNAL.withDescription("Risk scoring failed").asRuntimeException());
         }
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value;
     }
 }

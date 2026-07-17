@@ -519,7 +519,9 @@ public class PaymentTransactionService {
         String raw = command.merchantId()
                 + "|" + command.amountCents()
                 + "|" + command.currency()
-                + "|" + command.customerEmail();
+                + "|" + command.customerEmail()
+                + "|" + nullToEmpty(command.merchantCategory())
+                + "|" + nullToEmpty(command.cardCountry());
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
@@ -527,6 +529,10 @@ public class PaymentTransactionService {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 not available", ex);
         }
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private String serializeResult(ChargeResult result) {

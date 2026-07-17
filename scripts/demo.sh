@@ -26,7 +26,7 @@ HAPPY=$(curl -sf "${BASE_URL}/api/v1/payments/charge" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: demo-happy-1' \
   -H 'X-Correlation-Id: demo-corr-happy' \
-  -d '{"amount_cents":2500,"currency":"USD","customer_email":"buyer@example.com"}')
+  -d '{"amount_cents":2500,"currency":"USD","customer_email":"buyer@example.com","merchant_category":"retail","card_country":"US"}')
 echo "${HAPPY}" | jq .
 PAYMENT_ID=$(echo "${HAPPY}" | jq -r .payment_id)
 STATUS=$(echo "${HAPPY}" | jq -r .status)
@@ -68,7 +68,7 @@ for i in 1 2 3 4 5 6; do
     -H "Authorization: Bearer ${TOKEN}" \
     -H 'Content-Type: application/json' \
     -H "Idempotency-Key: demo-risk-${i}" \
-    -d "{\"amount_cents\":150000,\"currency\":\"USD\",\"customer_email\":\"${DEMO_EMAIL}\"}")
+    -d "{\"amount_cents\":150000,\"currency\":\"USD\",\"customer_email\":\"${DEMO_EMAIL}\",\"merchant_category\":\"retail\",\"card_country\":\"GB\"}")
   STATUS=$(echo "${RESULT}" | jq -r .status)
   echo "   charge ${i}: ${STATUS}"
   if [[ "${STATUS}" == "BLOCKED" ]]; then
@@ -81,7 +81,7 @@ done
   exit 1
 }
 BLOCKED_ID=$(echo "${BLOCKED}" | jq -r .payment_id)
-echo "   Blocked payment trail (amount + velocity factors):"
+echo "   Blocked payment trail (amount + velocity; card_country=GB vs merchant default US for geo signal):"
 curl -sf "${BASE_URL}/api/v1/payments/${BLOCKED_ID}/trail" \
   -H "Authorization: Bearer ${OPS_TOKEN}" | jq .
 echo

@@ -69,6 +69,12 @@ sentinelpay:
   risk:
     grpc:
       port: ${RISK_GRPC_PORT:9091}
+    # rules (default / tests) | ml (compose/demo)
+    scorer: ${RISK_SCORER:rules}
+    model:
+      base-url: ${MODEL_HTTP_BASE_URL:http://localhost:8090}
+      connect-timeout-ms: ${MODEL_CONNECT_TIMEOUT_MS:100}
+      read-timeout-ms: ${MODEL_READ_TIMEOUT_MS:200}
     scoring:
       block-threshold: ${RISK_BLOCK_THRESHOLD:0.70}
       review-threshold: ${RISK_REVIEW_THRESHOLD:0.30}

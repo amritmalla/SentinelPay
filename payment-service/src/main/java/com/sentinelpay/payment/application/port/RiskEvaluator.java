@@ -12,7 +12,19 @@ public interface RiskEvaluator {
             UUID merchantId,
             long amountCents,
             String currency,
-            String customerEmail) {
+            String customerEmail,
+            String merchantCategory,
+            String cardCountry,
+            String merchantCountry) {
+
+        public RiskInput(
+                UUID transactionId,
+                UUID merchantId,
+                long amountCents,
+                String currency,
+                String customerEmail) {
+            this(transactionId, merchantId, amountCents, currency, customerEmail, null, null, null);
+        }
     }
 
     record RiskDecision(

@@ -42,6 +42,36 @@
       "targets": [
         {"expr": "sum(rate(sentinelpay_risk_fallback_total[5m]))", "legendFormat": "risk fallback/s"}
       ]
+    },
+    {
+      "id": 4,
+      "title": "ML score distribution (drift watch)",
+      "description": "Live calibrated score distribution from riskmodel_score_value. Training reference density per 0.1 bin (ml-v1.0.0+2a2a534d): [9.65, 0.00, 0.08, 0.00, 0.00, 0.06, 0.00, 0.00, 0.02, 0.19]. Compare with risk-model/scripts/drift-check.py (PSI >= 0.25 = significant drift).",
+      "type": "heatmap",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "sum(increase(riskmodel_score_value_bucket[5m])) by (le)", "format": "heatmap", "legendFormat": "{{le}}"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "ML score quantiles",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(riskmodel_score_value_bucket[15m])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.90, sum(rate(riskmodel_score_value_bucket[15m])) by (le))", "legendFormat": "p90"},
+        {"expr": "histogram_quantile(0.99, sum(rate(riskmodel_score_value_bucket[15m])) by (le))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "ML scorer fallback rate (rules fallback)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "targets": [
+        {"expr": "sum(rate(sentinelpay_ml_scorer_fallback_total[5m]))", "legendFormat": "ml fallback/s"}
+      ]
     }
   ]
 }

@@ -59,7 +59,10 @@ public class ChargeService {
                 command.merchantId(),
                 command.amountCents(),
                 command.currency(),
-                command.customerEmail()));
+                command.customerEmail(),
+                command.merchantCategory(),
+                command.cardCountry(),
+                command.merchantCountry()));
 
         if (risk.fallbackUsed()) {
             chargeMetrics.recordRiskFallback();

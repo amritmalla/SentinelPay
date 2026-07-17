@@ -60,6 +60,10 @@ management:
       probability: ${TRACE_SAMPLE:1.0}
 
 sentinelpay:
+  merchants:
+    # Server-sourced merchant country for risk scoring (not client-attested).
+    default-country: ${MERCHANT_DEFAULT_COUNTRY:US}
+    countries: {}
   risk:
     grpc:
       # 100 ms deadline per call; GrpcRiskEvaluator retries once on UNAVAILABLE/DEADLINE_EXCEEDED (~200 ms worst case).

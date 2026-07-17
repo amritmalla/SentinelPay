@@ -138,18 +138,31 @@ services:
       - grafana-data:/var/lib/grafana
     depends_on: [prometheus, tempo]
 
+  risk-model:
+    build: { context: ./risk-model, dockerfile: Dockerfile }
+    ports: ["8090:8090"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   risk-service:
     build: { context: ., dockerfile: risk-service/Dockerfile }
     depends_on:
       postgres-risk: { condition: service_healthy }
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      risk-model: { condition: service_healthy }
     environment:
       <<: *demo-env
       SPRING_PROFILES_ACTIVE: observability
       RISK_DB_URL: jdbc:postgresql://postgres-risk:5432/sentinelpay_risk
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP: kafka:29092
+      RISK_SCORER: ml
+      MODEL_HTTP_BASE_URL: http://risk-model:8090
     ports: ["8083:8083", "9091:9091"]
     healthcheck:
       <<: *service-healthcheck

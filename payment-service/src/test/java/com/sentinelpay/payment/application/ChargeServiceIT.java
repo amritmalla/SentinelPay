@@ -199,7 +199,9 @@ class ChargeServiceIT {
         String raw = command.merchantId()
                 + "|" + command.amountCents()
                 + "|" + command.currency()
-                + "|" + command.customerEmail();
+                + "|" + command.customerEmail()
+                + "|" + (command.merchantCategory() == null ? "" : command.merchantCategory())
+                + "|" + (command.cardCountry() == null ? "" : command.cardCountry());
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));

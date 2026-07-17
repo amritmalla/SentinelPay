@@ -20,6 +20,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -29,6 +30,7 @@ class GrpcRiskEvaluatorIT {
 
     private static Server server;
     private static int port;
+    private static final AtomicReference<RiskScoreRequest> LAST_REQUEST = new AtomicReference<>();
 
     @Autowired
     GrpcRiskEvaluator evaluator;
@@ -52,6 +54,7 @@ class GrpcRiskEvaluatorIT {
                         @Override
                         public void scoreTransaction(
                                 RiskScoreRequest request, StreamObserver<RiskScoreResponse> responseObserver) {
+                            LAST_REQUEST.set(request);
                             responseObserver.onNext(RiskScoreResponse.newBuilder()
                                     .setScore(0.1)
                                     .setRecommendation("APPROVE")
@@ -90,6 +93,49 @@ class GrpcRiskEvaluatorIT {
 
     @Test
     @Order(2)
+    void evaluate_withFeatureFields_forwardsAllNineProtoFields() {
+        UUID transactionId = UUID.randomUUID();
+        UUID merchantId = UUID.randomUUID();
+        RiskEvaluator.RiskInput input = new RiskEvaluator.RiskInput(
+                transactionId,
+                merchantId,
+                2_500,
+                "USD",
+                "buyer@example.com",
+                "retail",
+                "GB",
+                "US");
+
+        evaluator.evaluate(input);
+
+        RiskScoreRequest request = LAST_REQUEST.get();
+        assertThat(request).isNotNull();
+        assertThat(request.getTransactionId()).isEqualTo(transactionId.toString());
+        assertThat(request.getMerchantId()).isEqualTo(merchantId.toString());
+        assertThat(request.getAmountCents()).isEqualTo(2_500);
+        assertThat(request.getCurrency()).isEqualTo("USD");
+        assertThat(request.getCustomerEmail()).isEqualTo("buyer@example.com");
+        assertThat(request.getMerchantCategory()).isEqualTo("retail");
+        assertThat(request.getCardCountry()).isEqualTo("GB");
+        assertThat(request.getMerchantCountry()).isEqualTo("US");
+        assertThat(request.getTimestampEpochMs()).isPositive();
+    }
+
+    @Test
+    @Order(3)
+    void evaluate_omittedFeatureFields_leavesProtoFieldsUnset() {
+        evaluator.evaluate(riskInput(2_500));
+
+        RiskScoreRequest request = LAST_REQUEST.get();
+        assertThat(request).isNotNull();
+        assertThat(request.getMerchantCategory()).isEmpty();
+        assertThat(request.getCardCountry()).isEmpty();
+        assertThat(request.getMerchantCountry()).isEmpty();
+        assertThat(request.getTimestampEpochMs()).isPositive();
+    }
+
+    @Test
+    @Order(4)
     void evaluate_serverDown_returnsAmountBasedFallback() {
         server.shutdownNow();
 

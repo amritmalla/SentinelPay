@@ -1,8 +1,5 @@
 package com.sentinelpay.payment.application.model;
 
-import com.sentinelpay.payment.domain.PaymentStatus;
-import com.sentinelpay.payment.domain.Provider;
-
 import java.util.UUID;
 
 public record ChargeCommand(
@@ -11,5 +8,20 @@ public record ChargeCommand(
         String currency,
         String customerEmail,
         String idempotencyKey,
-        String correlationId) {
+        String correlationId,
+        String merchantCategory,
+        String cardCountry,
+        String merchantCountry) {
+
+    /** Compatibility constructor for reconcile/webhook paths that omit risk feature fields. */
+    public ChargeCommand(
+            UUID merchantId,
+            long amountCents,
+            String currency,
+            String customerEmail,
+            String idempotencyKey,
+            String correlationId) {
+        this(merchantId, amountCents, currency, customerEmail, idempotencyKey, correlationId,
+                null, null, null);
+    }
 }
