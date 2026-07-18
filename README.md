@@ -15,7 +15,7 @@ Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
 
 **SentinelPay** is an intelligent payment orchestration layer between merchants and multiple payment providers. Instead of blindly forwarding charges, it evaluates risk, selects the best healthy provider, and fails over on failure — with a strict no-double-charge guarantee and an explainable decision trail.
 
-> **v1 scope (this build):** resilient **multi-provider routing and failover** — risk-evaluate → decide → route → fail over, with **guaranteed no double-charge** and a fully **explainable decision trail**. Broader platform vision is sequenced after v1. See [docs/product/vision/](docs/product/vision/) and [docs/product/PRD.md](docs/product/PRD.md).
+> **Scope.** The **v1 wedge** is resilient multi-provider routing and failover — risk-evaluate → decide → route → fail over, with **guaranteed no double-charge** and a fully **explainable decision trail**. A **v2 extension** added ML fraud scoring, adaptive bandit routing with circuit breakers, a real Stripe test-mode adapter, and an ops/merchant dashboard. What is deliberately *not* built is listed under [Status](#status). See [docs/product/PRD.md](docs/product/PRD.md) for approved v1 scope and [docs/product/vision/](docs/product/vision/) for the north star.
 
 ## Table of contents
 
@@ -31,6 +31,7 @@ Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
 - [Run locally](#run-locally)
 - [Demo](#demo)
 - [Using the API](#using-the-api)
+- [Running against real Stripe (test mode)](#running-against-real-stripe-test-mode)
 - [Observability](#observability)
 - [Status](#status)
 - [Contributing and license](#contributing-and-license)
@@ -106,7 +107,10 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 
 - **Multi-provider routing & failover** — a charge is attempted against a healthy provider and automatically fails over to the next on failure, within a single request (MockPay primary; a second Stripe slot, stubbed by default, swappable to real Stripe test-mode via `STRIPE_MODE`).
 - **No double-charge (correctness gate)** — idempotency-key-first writes, ambiguous-timeout reconciliation *before* any failover, optimistic-concurrency state machine, and a crash-recovery reconciliation sweep. Enforced by an integration test asserting **double-charge = 0** across every failover path.
-- **Explainable risk scoring** — pluggable rule-based scorer over gRPC returning `score ∈ [0,1]`, contributing factors, and `model_version`; Redis velocity counters; amount-based fallback on gRPC deadline (flagged in the trail).
+- **Explainable risk scoring** — a scorer behind a pluggable Strategy seam returns `score ∈ [0,1]`, contributing factors, and `model_version` over gRPC; Redis velocity counters; amount-based fallback on gRPC deadline (flagged in the trail).
+- **ML fraud model** — LightGBM with **isotonic calibration** (so the score is a usable probability, not just a ranking) served from a Python sidecar, with **SHAP** per-decision explanations and **PSI drift** monitoring. Risk-service fails open to the rule scorer if the model service is slow or down.
+- **Adaptive routing** — a Thompson-sampling bandit (Beta-Bernoulli posteriors, decay half-life, cost penalty) ranks providers from live outcomes, with per-provider **Resilience4j circuit breakers** and a never-strand guardrail. Traffic split is deterministic on a hash of the payment id, so runs are reproducible.
+- **Ops & merchant dashboard** — a React SPA over the read surface: merchant payment list and detail, and an OPS view of live provider health, bandit posteriors, and breaker state.
 - **Decision trail** — every charge composes its risk factors and provider attempts into an auditable, explainable record.
 - **Refunds** — full/partial refunds against completed payments, emitted as events.
 - **Stripe webhook reconciliation** — idempotent inbound webhook handling with HMAC signature verification (`Webhook.constructEvent`); unsigned or mismatched payloads are rejected.
@@ -115,22 +119,26 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 
 ## Architecture
 
-Five services with a **synchronous** critical path (gRPC + REST) and **asynchronous** Kafka fan-out, database-per-service (PostgreSQL), and Redis for ephemeral counters. Rationale in the [ADRs](docs/architecture/adrs/).
+**Seven deployables**: five Java services, a Python model sidecar, and a React SPA. The critical path is **synchronous** (gRPC + REST) with **asynchronous** Kafka fan-out, database-per-service (PostgreSQL), and Redis for ephemeral counters and routing state. Rationale in the [ADRs](docs/architecture/adrs/).
 
 ```mermaid
 flowchart LR
     Merchant[Merchant App]
+    Dashboard[Dashboard SPA<br/>React]
     Gateway[API Gateway]
     Payment[Payment Service]
     Risk[Risk Service]
+    Model[risk-model<br/>Python / FastAPI]
     Provider[Provider Service]
     Stripe[Stripe test / MockPay]
     Kafka[(Kafka)]
     Notification[Notification Service]
 
     Merchant -->|REST + JWT| Gateway
+    Dashboard -->|REST + JWT| Gateway
     Gateway -->|REST| Payment
     Payment -->|gRPC| Risk
+    Risk -->|HTTP, fail-open| Model
     Payment -->|REST| Provider
     Provider --> Stripe
     Payment -->|outbox| Kafka
@@ -139,8 +147,9 @@ flowchart LR
 
 | Path | Protocol | Purpose |
 | --- | --- | --- |
-| Merchant → Gateway → Payment | REST | Charge lifecycle, idempotency, failover |
-| Payment → Risk | gRPC | Pluggable risk scoring on the critical path |
+| Merchant / Dashboard → Gateway → Payment | REST | Charge lifecycle, idempotency, failover, read surface |
+| Payment → Risk | gRPC | Risk scoring on the critical path |
+| Risk → risk-model | HTTP | ML score + SHAP factors; **fails open** to the rule scorer |
 | Payment → Provider | REST | Authorize/capture via Stripe or MockPay |
 | Payment/Risk → Kafka → Notification | Events | Non-critical fan-out (email, audit) |
 
@@ -152,30 +161,49 @@ Maven multi-module layout (`sentinelpay-parent`):
 | --- | --- |
 | `sentinelpay-common` | Shared web baseline (error envelope, correlation propagation) |
 | `sentinelpay-proto` | gRPC/protobuf contract (risk scoring) |
-| `api-gateway` | Edge: JWT auth, routing, rate limiting |
+| `api-gateway` | Edge: JWT auth, routing, rate limiting, CORS |
 | `payment-service` | Lifecycle, decisioning, routing, failover, idempotency (system of record) |
-| `risk-service` | Pluggable risk-evaluation pipeline (gRPC) |
-| `provider-service` | Provider abstraction (Stripe + MockPay) and health |
+| `risk-service` | Risk-evaluation pipeline behind a pluggable scorer seam (gRPC) |
+| `provider-service` | Provider abstraction (Stripe + MockPay) and health; no REST surface |
 | `notification-service` | Event-driven notifications |
+
+Two deployables live outside the Maven reactor and build independently (each has its own CI job):
+
+| Component | Stack | Role |
+| --- | --- | --- |
+| `risk-model` | Python 3.11 · uv | Fraud model training + FastAPI scoring service (LightGBM, SHAP, PSI drift) |
+| `dashboard` | Node 20 · Vite | React SPA for merchant payments and ops routing state |
 
 ## Tech stack
 
 | Layer | Technologies |
 | --- | --- |
-| Language / runtime | Java 17, Spring Boot 3.2, Spring Cloud Gateway |
-| Data | PostgreSQL 15, Redis 7, Flyway |
+| Backend | Java 17, Spring Boot 3.2, Spring Cloud Gateway, Spring Security |
+| ML / data science | Python 3.11, FastAPI, LightGBM, scikit-learn (isotonic calibration), SHAP, pandas, NumPy |
+| Frontend | React 19, TypeScript 5.7, Vite 6, React Router 7 |
+| Data | PostgreSQL 15, Redis 7 (Lettuce), Flyway |
 | Communication | REST, gRPC + Protocol Buffers |
 | Messaging | Apache Kafka, transactional outbox |
-| Observability | Micrometer, OpenTelemetry, Prometheus, Grafana, Tempo |
-| Testing | Testcontainers, JUnit 5 |
-| Build / infra | Maven (multi-module), Maven Wrapper, Docker Compose |
+| Resilience | Resilience4j circuit breakers, Thompson-sampling bandit routing |
+| Payments | Stripe Java SDK (test mode), MockPay simulator |
+| Observability | Micrometer, OpenTelemetry, Prometheus, Grafana, Tempo, prometheus-client (Python) |
+| Testing | Testcontainers, JUnit 5, WireMock, pytest, Vitest + Testing Library, Postman/Newman |
+| Tooling | Maven Wrapper, uv, ruff, mypy (strict), ESLint, Redocly |
+| Build / infra | Maven (multi-module), Docker Compose, nginx (unprivileged), GitHub Actions |
 
 ## Prerequisites
 
-- **JDK 17**
-- **Maven 3.9+** (or use the included `./mvnw` wrapper)
-- **Docker** — required for Testcontainers during tests and for local infrastructure via Compose
-- Optional for the API examples below: `curl`, `jq`
+**To run everything** (`docker compose up --build`), Docker alone is enough — the Python and Node components build inside their images.
+
+For local development outside containers:
+
+| Need | Required for |
+| --- | --- |
+| **JDK 17** + **Maven 3.9+** (or `./mvnw`) | The five Java services |
+| **Docker** | Testcontainers during `./mvnw verify`, and Compose infrastructure |
+| **Python 3.11** + [**uv**](https://docs.astral.sh/uv/) | `risk-model` — training, tests, serving |
+| **Node 20** | `dashboard` — dev server, tests, build |
+| `curl`, `jq` *(optional)* | The API examples below |
 
 ## Build and test
 
@@ -196,6 +224,23 @@ Alternatively, add `-am` when starting a service so Maven rebuilds its module de
 ./mvnw -q -pl payment-service -am spring-boot:run
 ```
 
+> **Run `./mvnw verify` with the Compose *application* containers stopped.** They bind the same ports the web-layer tests use, so a running stack causes confusing false failures. Infrastructure containers can stay up.
+
+The two non-Maven components build on their own, exactly as CI runs them:
+
+```bash
+# risk-model (Python)
+cd risk-model
+uv sync --extra dev
+uv run ruff check src tests && uv run mypy && uv run pytest
+uv run python -m riskmodel.train --smoke --seed 1
+
+# dashboard (React)
+cd dashboard
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
 ## Run locally
 
 ### One command (recommended for reviewers)
@@ -207,7 +252,7 @@ docker compose up --build
 # or: make up
 ```
 
-That starts infra, the observability stack, all five services, and the **dashboard** on port 5173. Gateway: **[http://localhost:8080](http://localhost:8080)**. Dashboard: **[http://localhost:5173](http://localhost:5173)** (dev JWT via `/dev/token`; token kept in memory only). Grafana, Tempo, and MailHog come up with the stack. Compose uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever work — **demo posture only; never ship `dev` to production.**
+That starts infra, the observability stack, the five Java services, the **risk-model** scoring sidecar, and the **dashboard** on port 5173. Gateway: **[http://localhost:8080](http://localhost:8080)**. Dashboard: **[http://localhost:5173](http://localhost:5173)** (dev JWT via `/dev/token`; token kept in memory only). Grafana, Tempo, and MailHog come up with the stack. Compose uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever work — **demo posture only; never ship `dev` to production.**
 
 ```bash
 bash scripts/demo.sh      # Git Bash / macOS / Linux
@@ -246,9 +291,11 @@ Add `observability` to export traces to Tempo (see [Observability](#observabilit
 | Payment Service | 8082 | System of record |
 | Risk Service | 8083 (REST), 9091 (gRPC) | Risk scoring |
 | Notification Service | 8084 | Event consumer |
-| Provider Service | 8085 | Provider health/abstraction |
+| Provider Service | 8085 | Provider health/abstraction (no REST surface) |
+| risk-model | 8090 | Python scoring sidecar (FastAPI); `/metrics` for drift |
+| Dashboard | 5173 | React SPA (nginx in container) |
 | Postgres (payments / risk / provider / notifications) | 5434 / 5435 / 5436 / 5437 | DB-per-service |
-| Redis | 6379 | Velocity counters, rate limits |
+| Redis | 6379 | Velocity counters, rate limits, routing health + bandit state |
 | Kafka | 9092 | Event bus (host); containers use `kafka:29092` internally |
 | MailHog SMTP / UI | 1025 / 8025 | Local email capture |
 | Prometheus | 9090 | Metrics + alert rules |
@@ -257,15 +304,20 @@ Add `observability` to export traces to Tempo (see [Observability](#observabilit
 
 ## Demo
 
-Three acts, driven by [scripts/demo.sh](scripts/demo.sh) against the full stack (Acts 4–5 require `dev` profile with bandit + breaker):
+Five acts, driven by [scripts/demo.sh](scripts/demo.sh) against the full stack (Acts 4–5 require the `dev` profile for the provider-control lever):
 
 | Act | What happens | What to observe |
 | --- | --- | --- |
 | **1. Happy path** | Charge $25 → `COMPLETED` via MockPay | Decision trail; receipt in [MailHog](http://localhost:8025) |
 | **2. Failover** | Program MockPay → `HARD_FAIL`, charge again | `COMPLETED` via Stripe stub; Grafana **Correctness** — `recovered_authorization_total` ↑, `double_capture_total` stays **0** |
 | **3. Risk block** | Six $1,500 charges for the same email | Velocity + amount cross the 0.70 block threshold; trail shows `amount:` and `velocity_1h:` factors |
-| **4. Breaker shift** | MockPay hard-fails until breaker opens | Trail: MockPay `breaker_state=OPEN`, Stripe first; Grafana **Provider Health** — breaker gauge flips |
-| **5. Bandit recovery** | Reset MockPay healthy, wait cooldown, recharge | Trail: HALF_OPEN/CLOSED probe; bandit `(α, β)` in routing rationale; MockPay regains share |
+| **4. Adaptive routing** | MockPay degrades; the bandit shifts traffic to Stripe | Trail: bandit `(α, β)` posteriors move and Stripe is ranked first; Grafana **Provider Health** |
+| **5. Recovery** | MockPay healthy again; the bandit re-explores | MockPay's posterior recovers and it regains share — adaptation without a manual toggle |
+
+> Acts 4–5 are framed around **bandit posteriors, not circuit-breaker state**. The bandit reacts to
+> failure faster than the breaker's rolling window fills, so it typically demotes a failing provider
+> *before* the breaker opens — the two mechanisms are complementary, and the breaker's own behaviour
+> is asserted deterministically in `RoutingShiftIT` rather than demonstrated here.
 
 Automated twin: `npx newman run postman/SentinelPay.postman_collection.json -e postman/SentinelPay.local.postman_environment.json`
 
@@ -391,7 +443,7 @@ With the stack from `docker compose up`, open **Grafana at [http://localhost:300
 | Dashboard | Shows |
 | --- | --- |
 | Charge golden signals | Charge-path rate / errors / latency vs the SLO |
-| Correctness | `double_capture_total` (must be **0**), recovered-authorization and risk-fallback rates |
+| Correctness | `double_capture_total` (must be **0**), recovered-authorization and risk-fallback rates, plus **model drift (PSI)** from the risk-model sidecar |
 | Provider health | Per-provider success ratio and latency |
 | Pipeline health | Outbox depth, relay lag, Kafka consumer lag |
 
