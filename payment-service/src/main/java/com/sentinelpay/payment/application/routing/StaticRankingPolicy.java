@@ -21,14 +21,14 @@ public final class StaticRankingPolicy implements RankingPolicy {
     }
 
     @Override
-    public List<Provider> rank(
+    public RankingResult rank(
             RoutingContext context,
             List<Provider> candidates,
             ProviderHealthStore healthStore,
             RoutingProperties properties) {
-        return candidates.stream()
+        return RankingResult.of(candidates.stream()
                 .sorted(Comparator.comparingInt(StaticRankingPolicy::staticIndex))
-                .toList();
+                .toList());
     }
 
     @Override
@@ -36,7 +36,8 @@ public final class StaticRankingPolicy implements RankingPolicy {
             Provider provider,
             int rank,
             ProviderHealthStore.ProviderHealthView health,
-            RoutingProperties properties) {
+            RoutingProperties properties,
+            Snapshot snapshot) {
         return ProviderRoutingRationale.ranked(List.of(), health.successRate(), health.latencyEwmaMs(), 0.0, null, rank);
     }
 

@@ -44,7 +44,10 @@ public class Resilience4jProviderCircuitBreakers implements ProviderCircuitBreak
         if (!routingProperties.getBreaker().isEnabled()) {
             return DISABLED;
         }
-        return breakers.get(provider).getState().name();
+        CircuitBreaker breaker = breakers.get(provider);
+        // After the open wait elapses, the next permission check moves OPEN → HALF_OPEN.
+        breaker.tryAcquirePermission();
+        return breaker.getState().name();
     }
 
     @Override
@@ -65,6 +68,7 @@ public class Resilience4jProviderCircuitBreakers implements ProviderCircuitBreak
         RoutingProperties.Breaker cfg = routingProperties.getBreaker();
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .slidingWindowSize(cfg.getSlidingWindowSize())
+                .minimumNumberOfCalls(cfg.getMinimumNumberOfCalls())
                 .failureRateThreshold(cfg.getFailureRateThreshold())
                 .waitDurationInOpenState(Duration.ofMillis(cfg.getWaitDurationOpenMs()))
                 .permittedNumberOfCallsInHalfOpenState(cfg.getPermittedCallsHalfOpen())

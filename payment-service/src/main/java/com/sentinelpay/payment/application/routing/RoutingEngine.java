@@ -2,6 +2,8 @@ package com.sentinelpay.payment.application.routing;
 
 import com.sentinelpay.payment.application.port.ProviderCircuitBreakers;
 import com.sentinelpay.payment.application.port.ProviderHealthStore;
+import com.sentinelpay.payment.config.MerchantCountryProperties;
+import com.sentinelpay.payment.config.MerchantRoutingRules;
 import com.sentinelpay.payment.config.RoutingProperties;
 import com.sentinelpay.payment.domain.Provider;
 import com.sentinelpay.payment.infrastructure.metrics.RoutingMetrics;
@@ -13,7 +15,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,6 +29,7 @@ public class RoutingEngine {
     private static final List<Provider> BASE_ORDER = List.of(Provider.MOCKPAY, Provider.STRIPE);
 
     private final RoutingProperties properties;
+    private final MerchantCountryProperties merchantProperties;
     private final ProviderHealthStore healthStore;
     private final ProviderCircuitBreakers circuitBreakers;
     private final Map<String, RankingPolicy> policies;
@@ -35,11 +37,13 @@ public class RoutingEngine {
 
     public RoutingEngine(
             RoutingProperties properties,
+            MerchantCountryProperties merchantProperties,
             ProviderHealthStore healthStore,
             ProviderCircuitBreakers circuitBreakers,
             List<RankingPolicy> rankingPolicies,
             RoutingMetrics routingMetrics) {
         this.properties = properties;
+        this.merchantProperties = merchantProperties;
         this.healthStore = healthStore;
         this.circuitBreakers = circuitBreakers;
         this.policies = rankingPolicies.stream()
@@ -53,10 +57,12 @@ public class RoutingEngine {
             return staticFallback("disabled");
         }
         try {
+            MerchantRoutingRules.RuleSet merchantRules =
+                    merchantProperties.getRoutingRules().resolve(context.merchantId());
             List<Provider> candidates = new ArrayList<>(BASE_ORDER);
             Map<Provider, ProviderRoutingRationale> rationale = new LinkedHashMap<>();
 
-            Stage1Result stage1 = applyEligibility(context, candidates);
+            Stage1Result stage1 = applyEligibility(context, candidates, merchantRules);
             candidates = stage1.eligible();
             stage1.ineligible().forEach(rationale::put);
 
@@ -77,23 +83,33 @@ public class RoutingEngine {
             }
 
             RankingPolicy policy = resolvePolicy();
-            List<Provider> ranked = policy.rank(context, candidates, healthStore, properties);
-            ranked = pinHalfOpenLast(ranked, breakerStates);
+            RankingPolicy.RankingResult rankingResult = policy.rank(context, candidates, healthStore, properties);
+            List<Provider> ranked = pinHalfOpenLast(rankingResult.ordered(), breakerStates);
+            ranked = applyPreferPin(merchantRules, ranked, stage1.matchedRules());
 
-            // Stage 4 — traffic split (optional)
-            ranked = applyTrafficSplit(context, ranked);
+            TrafficSplitResult splitResult = applyTrafficSplit(context, ranked);
+            ranked = splitResult.ranked();
+            if (splitResult.applied()) {
+                flags.add(RoutingDecision.FLAG_SPLIT_ASSIGNED);
+                stage1
+                        .matchedRules()
+                        .computeIfAbsent(splitResult.assignedProvider(), ignored -> new ArrayList<>())
+                        .add("SPLIT_ASSIGNED");
+            }
 
             for (int i = 0; i < ranked.size(); i++) {
                 Provider provider = ranked.get(i);
                 ProviderHealthStore.ProviderHealthView health = healthStore.read(provider);
                 List<String> rules = stage1.matchedRules().getOrDefault(provider, List.of());
-                ProviderRoutingRationale base = policy.rationaleFor(provider, i + 1, health, properties);
+                ProviderRoutingRationale base = policy.rationaleFor(
+                        provider, i + 1, health, properties, rankingResult.snapshots().get(provider));
                 rationale.put(
                         provider,
                         mergeRules(base.withBreakerState(breakerStates.get(provider)), rules));
             }
 
-            RoutingDecision decision = new RoutingDecision(policy.name(), ranked, rationale, List.copyOf(flags));
+            RoutingDecision decision = new RoutingDecision(
+                    policy.name(), ranked, rationale, List.copyOf(flags), splitResult.assignment());
             recordMetrics(decision);
             return decision;
         } catch (RuntimeException ex) {
@@ -112,9 +128,8 @@ public class RoutingEngine {
         return policy;
     }
 
-    private Stage1Result applyEligibility(RoutingContext context, List<Provider> candidates) {
-        RoutingProperties.MerchantRules merchantRules = properties.getMerchantRules();
-        RoutingProperties.RuleSet rules = merchantRules.resolve(context.merchantId());
+    private Stage1Result applyEligibility(
+            RoutingContext context, List<Provider> candidates, MerchantRoutingRules.RuleSet rules) {
         String currency = context.currency();
 
         List<Provider> eligible = new ArrayList<>();
@@ -147,16 +162,24 @@ public class RoutingEngine {
             eligible.add(provider);
         }
 
-        if (rules.getPrefer() != null && !rules.getPrefer().isBlank()) {
-            String prefer = rules.getPrefer().trim().toLowerCase(Locale.ROOT);
-            eligible.sort(Comparator.comparingInt(p -> prefer.equals(p.dbValue()) ? 0 : 1));
-            eligible.stream()
-                    .filter(p -> prefer.equals(p.dbValue()))
-                    .findFirst()
-                    .ifPresent(p -> matchedRules.computeIfAbsent(p, k -> new ArrayList<>()).add("RULE_PREFER"));
-        }
-
         return new Stage1Result(eligible, ineligible, matchedRules);
+    }
+
+    private static List<Provider> applyPreferPin(
+            MerchantRoutingRules.RuleSet rules, List<Provider> ranked, Map<Provider, List<String>> matchedRules) {
+        if (rules.getPrefer() == null || rules.getPrefer().isBlank()) {
+            return ranked;
+        }
+        String prefer = rules.getPrefer().trim().toLowerCase(Locale.ROOT);
+        Provider preferred = Provider.fromDbValue(prefer);
+        if (!ranked.contains(preferred)) {
+            return ranked;
+        }
+        matchedRules.computeIfAbsent(preferred, ignored -> new ArrayList<>()).add("RULE_PREFER");
+        List<Provider> reordered = new ArrayList<>();
+        reordered.add(preferred);
+        ranked.stream().filter(p -> p != preferred).forEach(reordered::add);
+        return reordered;
     }
 
     private BreakerStageResult applyCircuitBreaker(List<Provider> candidates) {
@@ -206,10 +229,10 @@ public class RoutingEngine {
         return reordered;
     }
 
-    private List<Provider> applyTrafficSplit(RoutingContext context, List<Provider> ranked) {
+    private TrafficSplitResult applyTrafficSplit(RoutingContext context, List<Provider> ranked) {
         Map<String, Integer> split = properties.getSplit();
         if (split == null || split.isEmpty() || ranked.size() < 2) {
-            return ranked;
+            return TrafficSplitResult.unchanged(ranked);
         }
         int bucket = splitBucket(context.paymentId());
         int cumulative = 0;
@@ -219,15 +242,17 @@ public class RoutingEngine {
             if (bucket < cumulative) {
                 Provider assigned = Provider.fromDbValue(entry.getKey().toLowerCase(Locale.ROOT));
                 if (!ranked.contains(assigned)) {
-                    return ranked;
+                    return TrafficSplitResult.unchanged(ranked);
                 }
                 List<Provider> reordered = new ArrayList<>();
                 reordered.add(assigned);
                 ranked.stream().filter(p -> p != assigned).forEach(reordered::add);
-                return reordered;
+                return TrafficSplitResult.assigned(
+                        reordered,
+                        new RoutingDecision.SplitAssignment(bucket, assigned.dbValue()));
             }
         }
-        return ranked;
+        return TrafficSplitResult.unchanged(ranked);
     }
 
     static int splitBucket(java.util.UUID paymentId) {
@@ -306,6 +331,19 @@ public class RoutingEngine {
                 Map<Provider, String> removed,
                 boolean bypassed) {
             return new BreakerStageResult(admitted, breakerStates, removed, bypassed);
+        }
+    }
+
+    private record TrafficSplitResult(
+            List<Provider> ranked, RoutingDecision.SplitAssignment assignment, boolean applied, Provider assignedProvider) {
+
+        static TrafficSplitResult unchanged(List<Provider> ranked) {
+            return new TrafficSplitResult(ranked, null, false, null);
+        }
+
+        static TrafficSplitResult assigned(List<Provider> ranked, RoutingDecision.SplitAssignment assignment) {
+            return new TrafficSplitResult(
+                    ranked, assignment, true, Provider.fromDbValue(assignment.assignedProvider()));
         }
     }
 }

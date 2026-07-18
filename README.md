@@ -202,13 +202,15 @@ Add `observability` to export traces to Tempo (see [Observability](#observabilit
 
 ## Demo
 
-Three acts, driven by [scripts/demo.sh](scripts/demo.sh) against the full stack:
+Three acts, driven by [scripts/demo.sh](scripts/demo.sh) against the full stack (Acts 4–5 require `dev` profile with bandit + breaker):
 
 | Act | What happens | What to observe |
 | --- | --- | --- |
 | **1. Happy path** | Charge $25 → `COMPLETED` via MockPay | Decision trail; receipt in [MailHog](http://localhost:8025) |
 | **2. Failover** | Program MockPay → `HARD_FAIL`, charge again | `COMPLETED` via Stripe stub; Grafana **Correctness** — `recovered_authorization_total` ↑, `double_capture_total` stays **0** |
 | **3. Risk block** | Six $1,500 charges for the same email | Velocity + amount cross the 0.70 block threshold; trail shows `amount:` and `velocity_1h:` factors |
+| **4. Breaker shift** | MockPay hard-fails until breaker opens | Trail: MockPay `breaker_state=OPEN`, Stripe first; Grafana **Provider Health** — breaker gauge flips |
+| **5. Bandit recovery** | Reset MockPay healthy, wait cooldown, recharge | Trail: HALF_OPEN/CLOSED probe; bandit `(α, β)` in routing rationale; MockPay regains share |
 
 Automated twin: `npx newman run postman/SentinelPay.postman_collection.json -e postman/SentinelPay.local.postman_environment.json`
 
@@ -253,6 +255,9 @@ sequenceDiagram
 | Fast risk on the hot path | gRPC to Risk Service (100 ms deadline) | [0003](docs/architecture/adrs/0003-grpc-for-risk-on-critical-path.md) |
 | Provider swap without rewrite | `PaymentProvider` abstraction; MockPay + Stripe slot | [0006](docs/architecture/adrs/0006-provider-abstraction-mockpay.md) |
 | Explainable trail | API composition across Payment + Risk (no cross-DB join) | [0004](docs/architecture/adrs/0004-fold-decisioning-into-payment.md) |
+| Smart routing | Four-stage pipeline; Redis health + bandit posteriors; trail rationale | [0013](docs/architecture/adrs/0013-smart-routing-model-and-health-state.md) |
+| Circuit breaking | Resilience4j per provider; never-strand guardrail | [0014](docs/architecture/adrs/0014-circuit-breaking-resilience4j.md) |
+| Adaptive routing | Thompson sampling bandit; seeded replay | [0015](docs/architecture/adrs/0015-adaptive-routing-bandit.md) |
 
 
 ## Using the API

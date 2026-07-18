@@ -2,6 +2,7 @@ package com.sentinelpay.payment.application.routing;
 
 import com.sentinelpay.payment.application.port.ProviderCircuitBreakers;
 import com.sentinelpay.payment.application.port.ProviderHealthStore;
+import com.sentinelpay.payment.config.MerchantCountryProperties;
 import com.sentinelpay.payment.config.RoutingProperties;
 import com.sentinelpay.payment.domain.Provider;
 import com.sentinelpay.payment.infrastructure.metrics.RoutingMetrics;
@@ -20,6 +21,7 @@ import static org.mockito.Mockito.when;
 class RoutingEngineBreakerTest {
 
     private RoutingProperties properties;
+    private MerchantCountryProperties merchantProperties;
     private ProviderHealthStore healthStore;
     private ProviderCircuitBreakers circuitBreakers;
     private RoutingEngine engine;
@@ -29,12 +31,14 @@ class RoutingEngineBreakerTest {
     void setUp() {
         properties = new RoutingProperties();
         properties.getBreaker().setEnabled(true);
+        merchantProperties = new MerchantCountryProperties();
         healthStore = mock(ProviderHealthStore.class);
         circuitBreakers = mock(ProviderCircuitBreakers.class);
         meterRegistry = new SimpleMeterRegistry();
         when(healthStore.read(any())).thenReturn(ProviderHealthStore.ProviderHealthView.neutral());
         engine = new RoutingEngine(
                 properties,
+                merchantProperties,
                 healthStore,
                 circuitBreakers,
                 List.of(new StaticRankingPolicy(), new ScoredRankingPolicy()),

@@ -25,4 +25,16 @@ class MerchantCountryPropertiesTest {
 
         assertThat(properties.resolve(UUID.randomUUID())).isEqualTo("DE");
     }
+
+    @Test
+    void routingRules_resolve_merchantSpecificOverridesDefault() {
+        MerchantCountryProperties properties = new MerchantCountryProperties();
+        UUID merchantId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        MerchantRoutingRules.RuleSet rules = new MerchantRoutingRules.RuleSet();
+        rules.setPrefer("stripe");
+        properties.getRoutingRules().getMerchants().put(merchantId.toString(), rules);
+
+        assertThat(properties.getRoutingRules().resolve(merchantId).getPrefer()).isEqualTo("stripe");
+        assertThat(properties.getRoutingRules().resolve(UUID.randomUUID()).getPrefer()).isNull();
+    }
 }

@@ -17,7 +17,7 @@ public final class RoutingDecisionMapper {
         Map<String, ProviderRoutingRationale> rationale = new LinkedHashMap<>();
         decision.rationaleByProvider().forEach((provider, value) -> rationale.put(provider.dbValue(), value));
         List<String> ordered = decision.orderedProviders().stream().map(Provider::dbValue).toList();
-        return new RoutingDecisionDocument(decision.policy(), ordered, decision.flags(), rationale);
+        return new RoutingDecisionDocument(decision.policy(), ordered, decision.flags(), rationale, decision.split());
     }
 
     public static String toJson(RoutingDecision decision, ObjectMapper objectMapper) {
@@ -43,6 +43,7 @@ public final class RoutingDecisionMapper {
             String policy,
             List<String> orderedProviders,
             List<String> flags,
-            Map<String, ProviderRoutingRationale> rationaleByProvider) {
+            Map<String, ProviderRoutingRationale> rationaleByProvider,
+            RoutingDecision.SplitAssignment split) {
     }
 }

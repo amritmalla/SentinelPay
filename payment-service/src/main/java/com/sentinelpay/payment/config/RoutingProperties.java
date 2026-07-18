@@ -54,10 +54,6 @@ public class RoutingProperties {
     @NotNull
     private Map<String, ProviderConfig> providers = defaultProviders();
 
-    @Valid
-    @NotNull
-    private MerchantRules merchantRules = new MerchantRules();
-
     public boolean isEnabled() {
         return enabled;
     }
@@ -136,14 +132,6 @@ public class RoutingProperties {
 
     public void setProviders(Map<String, ProviderConfig> providers) {
         this.providers = providers != null && !providers.isEmpty() ? providers : defaultProviders();
-    }
-
-    public MerchantRules getMerchantRules() {
-        return merchantRules;
-    }
-
-    public void setMerchantRules(MerchantRules merchantRules) {
-        this.merchantRules = merchantRules != null ? merchantRules : new MerchantRules();
     }
 
     private static Map<String, ProviderConfig> defaultProviders() {
@@ -234,6 +222,9 @@ public class RoutingProperties {
         @Min(1)
         private int permittedCallsHalfOpen = 3;
 
+        @Min(1)
+        private int minimumNumberOfCalls = 10;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -272,6 +263,14 @@ public class RoutingProperties {
 
         public void setPermittedCallsHalfOpen(int permittedCallsHalfOpen) {
             this.permittedCallsHalfOpen = permittedCallsHalfOpen;
+        }
+
+        public int getMinimumNumberOfCalls() {
+            return minimumNumberOfCalls;
+        }
+
+        public void setMinimumNumberOfCalls(int minimumNumberOfCalls) {
+            this.minimumNumberOfCalls = minimumNumberOfCalls;
         }
     }
 
@@ -324,72 +323,6 @@ public class RoutingProperties {
             }
             String normalized = currency.trim().toUpperCase(Locale.ROOT);
             return currencies.isEmpty() || currencies.contains(normalized);
-        }
-    }
-
-    public static class MerchantRules {
-        @Valid
-        @NotNull
-        @org.springframework.boot.context.properties.NestedConfigurationProperty
-        private RuleSet defaultRules = new RuleSet();
-
-        @Valid
-        private Map<String, RuleSet> merchants = new HashMap<>();
-
-        public RuleSet getDefault() {
-            return defaultRules;
-        }
-
-        public void setDefault(RuleSet defaultRules) {
-            this.defaultRules = defaultRules != null ? defaultRules : new RuleSet();
-        }
-
-        public Map<String, RuleSet> getMerchants() {
-            return merchants;
-        }
-
-        public void setMerchants(Map<String, RuleSet> merchants) {
-            this.merchants = merchants != null ? merchants : new HashMap<>();
-        }
-
-        public RuleSet resolve(java.util.UUID merchantId) {
-            if (merchantId != null) {
-                RuleSet specific = merchants.get(merchantId.toString());
-                if (specific != null) {
-                    return specific;
-                }
-            }
-            return defaultRules;
-        }
-    }
-
-    public static class RuleSet {
-        private String prefer;
-        private List<String> deny = List.of();
-        private Map<String, Long> maxAmountCents = new HashMap<>();
-
-        public String getPrefer() {
-            return prefer;
-        }
-
-        public void setPrefer(String prefer) {
-            this.prefer = prefer;
-        }
-
-        public List<String> getDeny() {
-            return deny;
-        }
-
-        public void setDeny(List<String> deny) {
-            this.deny = deny != null ? deny : List.of();
-        }
-
-        public Map<String, Long> getMaxAmountCents() {
-            return maxAmountCents;
-        }
-
-        public void setMaxAmountCents(Map<String, Long> maxAmountCents) {
-            this.maxAmountCents = maxAmountCents != null ? maxAmountCents : new HashMap<>();
         }
     }
 }

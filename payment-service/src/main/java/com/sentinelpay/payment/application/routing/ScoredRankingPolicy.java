@@ -14,20 +14,17 @@ import java.util.Map;
  */
 public final class ScoredRankingPolicy implements RankingPolicy {
 
-    private final Map<Provider, ScoredSnapshot> lastRanked = new HashMap<>();
-
     @Override
     public String name() {
         return "scored";
     }
 
     @Override
-    public List<Provider> rank(
+    public RankingResult rank(
             RoutingContext context,
             List<Provider> candidates,
             ProviderHealthStore healthStore,
             RoutingProperties properties) {
-        lastRanked.clear();
         RoutingProperties.Scored scored = properties.getScored();
         double wSuccess = scored.getWeightSuccess();
         double wLatency = scored.getWeightLatency();
@@ -36,19 +33,22 @@ public final class ScoredRankingPolicy implements RankingPolicy {
         record ScoredProvider(Provider provider, double score, ScoredSnapshot snapshot) {
         }
 
+        Map<Provider, Snapshot> snapshots = new HashMap<>();
         List<ScoredProvider> scoredList = candidates.stream()
                 .map(provider -> {
                     ProviderHealthStore.ProviderHealthView health = healthStore.read(provider);
                     ScoredSnapshot snapshot = computeScore(provider, health, properties, wSuccess, wLatency, ceilingMs);
-                    lastRanked.put(provider, snapshot);
+                    snapshots.put(provider, snapshot);
                     return new ScoredProvider(provider, snapshot.score(), snapshot);
                 })
                 .toList();
 
         if (isColdStart(candidates, healthStore)) {
-            return candidates.stream()
-                    .sorted(Comparator.comparingInt(StaticRankingPolicy::staticIndex))
-                    .toList();
+            return new RankingResult(
+                    candidates.stream()
+                            .sorted(Comparator.comparingInt(StaticRankingPolicy::staticIndex))
+                            .toList(),
+                    snapshots);
         }
 
         scoredList = scoredList.stream()
@@ -58,7 +58,7 @@ public final class ScoredRankingPolicy implements RankingPolicy {
                         .thenComparingLong(p -> normalizedFeeCents(p.provider(), properties)))
                 .toList();
 
-        return scoredList.stream().map(ScoredProvider::provider).toList();
+        return new RankingResult(scoredList.stream().map(ScoredProvider::provider).toList(), snapshots);
     }
 
     private static boolean isColdStart(List<Provider> candidates, ProviderHealthStore healthStore) {
@@ -75,9 +75,10 @@ public final class ScoredRankingPolicy implements RankingPolicy {
             Provider provider,
             int rank,
             ProviderHealthStore.ProviderHealthView health,
-            RoutingProperties properties) {
-        ScoredSnapshot snapshot = lastRanked.containsKey(provider)
-                ? lastRanked.get(provider)
+            RoutingProperties properties,
+            Snapshot snapshot) {
+        ScoredSnapshot scoredSnapshot = snapshot instanceof ScoredSnapshot s
+                ? s
                 : computeScore(
                         provider,
                         health,
@@ -87,15 +88,11 @@ public final class ScoredRankingPolicy implements RankingPolicy {
                         properties.getLatencyCeilingMs());
         return ProviderRoutingRationale.ranked(
                 List.of(),
-                snapshot.successRate(),
-                snapshot.latencyEwmaMs(),
-                snapshot.score(),
-                snapshot.components(),
+                scoredSnapshot.successRate(),
+                scoredSnapshot.latencyEwmaMs(),
+                scoredSnapshot.score(),
+                scoredSnapshot.components(),
                 rank);
-    }
-
-    ScoredSnapshot snapshotFor(Provider provider) {
-        return lastRanked.get(provider);
     }
 
     static ScoredSnapshot computeScore(
@@ -135,6 +132,6 @@ public final class ScoredRankingPolicy implements RankingPolicy {
             double score,
             double successRate,
             long latencyEwmaMs,
-            ProviderRoutingRationale.ScoreComponents components) {
+            ProviderRoutingRationale.ScoreComponents components) implements Snapshot {
     }
 }

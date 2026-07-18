@@ -20,7 +20,6 @@ import java.util.Random;
 public final class BanditRankingPolicy implements RankingPolicy {
 
     private final ProviderBanditStore banditStore;
-    private final Map<Provider, BanditSnapshot> lastRanked = new HashMap<>();
 
     public BanditRankingPolicy(ProviderBanditStore banditStore) {
         this.banditStore = banditStore;
@@ -32,18 +31,18 @@ public final class BanditRankingPolicy implements RankingPolicy {
     }
 
     @Override
-    public List<Provider> rank(
+    public RankingResult rank(
             RoutingContext context,
             List<Provider> candidates,
             ProviderHealthStore healthStore,
             RoutingProperties properties) {
-        lastRanked.clear();
         double costWeight = properties.getBandit().getCostWeight();
         Random random = seededRandom(context.paymentId());
 
         record RankedProvider(Provider provider, double sampledTheta, double adjustedScore, BanditSnapshot snapshot) {
         }
 
+        Map<Provider, Snapshot> snapshots = new HashMap<>();
         List<RankedProvider> ranked = candidates.stream()
                 .map(provider -> {
                     ProviderBanditStore.Posterior posterior = banditStore.read(provider);
@@ -52,7 +51,7 @@ public final class BanditRankingPolicy implements RankingPolicy {
                     double adjusted = sampled - costPenalty;
                     BanditSnapshot snapshot = new BanditSnapshot(
                             posterior.alpha(), posterior.beta(), posterior.mean(), sampled, costPenalty, adjusted);
-                    lastRanked.put(provider, snapshot);
+                    snapshots.put(provider, snapshot);
                     return new RankedProvider(provider, sampled, adjusted, snapshot);
                 })
                 .sorted(Comparator
@@ -60,7 +59,7 @@ public final class BanditRankingPolicy implements RankingPolicy {
                         .thenComparingInt(p -> StaticRankingPolicy.staticIndex(p.provider())))
                 .toList();
 
-        return ranked.stream().map(RankedProvider::provider).toList();
+        return new RankingResult(ranked.stream().map(RankedProvider::provider).toList(), snapshots);
     }
 
     @Override
@@ -68,14 +67,17 @@ public final class BanditRankingPolicy implements RankingPolicy {
             Provider provider,
             int rank,
             ProviderHealthStore.ProviderHealthView health,
-            RoutingProperties properties) {
-        BanditSnapshot snapshot = lastRanked.get(provider);
-        if (snapshot == null) {
+            RoutingProperties properties,
+            Snapshot snapshot) {
+        BanditSnapshot banditSnapshot;
+        if (snapshot instanceof BanditSnapshot s) {
+            banditSnapshot = s;
+        } else {
             ProviderBanditStore.Posterior posterior = banditStore.read(provider);
-            snapshot = new BanditSnapshot(
+            banditSnapshot = new BanditSnapshot(
                     posterior.alpha(), posterior.beta(), posterior.mean(), posterior.mean(), 0.0, posterior.mean());
         }
-        return ProviderRoutingRationale.banditRanked(snapshot.toRationale(), rank);
+        return ProviderRoutingRationale.banditRanked(banditSnapshot.toRationale(), rank);
     }
 
     static Random seededRandom(java.util.UUID paymentId) {
@@ -94,7 +96,7 @@ public final class BanditRankingPolicy implements RankingPolicy {
             double posteriorMean,
             double sampledTheta,
             double costPenalty,
-            double adjustedScore) {
+            double adjustedScore) implements Snapshot {
 
         ProviderRoutingRationale.BanditRationale toRationale() {
             return new ProviderRoutingRationale.BanditRationale(

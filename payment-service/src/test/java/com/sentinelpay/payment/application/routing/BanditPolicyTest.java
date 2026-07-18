@@ -51,8 +51,8 @@ class BanditPolicyTest {
         UUID paymentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         RoutingContext context = new RoutingContext(paymentId, UUID.randomUUID(), 1_000, "USD");
 
-        List<Provider> first = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
-        List<Provider> second = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+        List<Provider> first = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
+        List<Provider> second = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
 
         assertThat(second).containsExactlyElementsOf(first);
     }
@@ -65,7 +65,7 @@ class BanditPolicyTest {
 
         UUID paymentId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         RoutingContext context = new RoutingContext(paymentId, UUID.randomUUID(), 1_000, "USD");
-        List<Provider> ranked = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+        List<Provider> ranked = policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
 
         assertThat(ranked.get(0)).isEqualTo(Provider.MOCKPAY);
     }
@@ -84,7 +84,7 @@ class BanditPolicyTest {
             UUID paymentId = UUID.nameUUIDFromBytes(("payment-" + i).getBytes());
             RoutingContext context = new RoutingContext(paymentId, UUID.randomUUID(), 1_000, "USD");
             List<Provider> ranked =
-                    policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+                    policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
             if (ranked.get(0) == Provider.MOCKPAY) {
                 mockPayFirst++;
             }
@@ -100,10 +100,15 @@ class BanditPolicyTest {
         banditStore.seed(Provider.MOCKPAY, 8.0, 2.0);
         UUID paymentId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         RoutingContext context = new RoutingContext(paymentId, UUID.randomUUID(), 1_000, "USD");
-        policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+        RankingPolicy.RankingResult result =
+                policy.rank(context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
 
-        ProviderRoutingRationale rationale =
-                policy.rationaleFor(Provider.MOCKPAY, 1, ProviderHealthStore.ProviderHealthView.neutral(), properties);
+        ProviderRoutingRationale rationale = policy.rationaleFor(
+                Provider.MOCKPAY,
+                1,
+                ProviderHealthStore.ProviderHealthView.neutral(),
+                properties,
+                result.snapshots().get(Provider.MOCKPAY));
 
         assertThat(rationale.bandit()).isNotNull();
         assertThat(rationale.bandit().alpha()).isEqualTo(8.0);

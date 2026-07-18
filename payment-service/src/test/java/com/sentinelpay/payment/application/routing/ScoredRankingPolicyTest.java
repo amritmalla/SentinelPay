@@ -31,7 +31,7 @@ class ScoredRankingPolicyTest {
     void coldStart_reproducesStaticOrder() {
         when(healthStore.read(any())).thenReturn(ProviderHealthStore.ProviderHealthView.neutral());
         List<Provider> ranked = policy.rank(
-                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
 
         assertThat(ranked).containsExactly(Provider.MOCKPAY, Provider.STRIPE);
     }
@@ -44,7 +44,7 @@ class ScoredRankingPolicyTest {
                 .thenReturn(new ProviderHealthStore.ProviderHealthView(0.95, 100L, false));
 
         List<Provider> ranked = policy.rank(
-                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
 
         assertThat(ranked.get(0)).isEqualTo(Provider.STRIPE);
     }
@@ -57,7 +57,7 @@ class ScoredRankingPolicyTest {
                 .thenReturn(new ProviderHealthStore.ProviderHealthView(0.8, 50L, false));
 
         List<Provider> ranked = policy.rank(
-                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties);
+                context, List.of(Provider.MOCKPAY, Provider.STRIPE), healthStore, properties).ordered();
 
         assertThat(ranked).containsExactly(Provider.MOCKPAY, Provider.STRIPE);
     }

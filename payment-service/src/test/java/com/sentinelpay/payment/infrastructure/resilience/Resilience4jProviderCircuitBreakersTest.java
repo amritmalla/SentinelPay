@@ -18,6 +18,7 @@ class Resilience4jProviderCircuitBreakersTest {
         properties.getBreaker().setEnabled(true);
         properties.getBreaker().setSlidingWindowSize(4);
         properties.getBreaker().setFailureRateThreshold(50);
+        properties.getBreaker().setMinimumNumberOfCalls(4);
         properties.getBreaker().setPermittedCallsHalfOpen(1);
         properties.getBreaker().setWaitDurationOpenMs(60_000);
         breakers = new Resilience4jProviderCircuitBreakers(properties, new SimpleMeterRegistry());

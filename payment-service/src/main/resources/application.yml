@@ -68,6 +68,8 @@ sentinelpay:
     # Server-sourced merchant country for risk scoring (not client-attested).
     default-country: ${MERCHANT_DEFAULT_COUNTRY:US}
     countries: {}
+    routing-rules:
+      merchants: {}
   risk:
     grpc:
       # 100 ms deadline per call; GrpcRiskEvaluator retries once on UNAVAILABLE/DEADLINE_EXCEEDED (~200 ms worst case).
@@ -110,6 +112,7 @@ sentinelpay:
       failure-rate-threshold: 50
       wait-duration-open-ms: 30000
       permitted-calls-half-open: 3
+      minimum-number-of-calls: 10
     split: {}
     providers:
       mockpay:
@@ -122,7 +125,5 @@ sentinelpay:
         fee-bps: 290
         fee-fixed-cents: 30
         currencies: [USD]
-    merchant-rules:
-      merchants: {}
   security:
     gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}

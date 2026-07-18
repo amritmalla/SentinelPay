@@ -60,7 +60,8 @@ public class TrailService {
         if (doc == null) {
             return null;
         }
-        return new RoutingTrailView(doc.policy(), doc.orderedProviders(), doc.flags(), doc.rationaleByProvider());
+        return new RoutingTrailView(
+                doc.policy(), doc.orderedProviders(), doc.flags(), doc.split(), doc.rationaleByProvider());
     }
 
     private PaymentAttemptView toAttemptView(PaymentAttemptEntity attempt) {

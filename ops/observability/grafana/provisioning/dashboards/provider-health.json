@@ -4,7 +4,7 @@
   "tags": ["sentinelpay", "provider"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "panels": [
     {
@@ -29,6 +29,60 @@
         {
           "expr": "histogram_quantile(0.99, sum by (provider, op, le) (rate(sentinelpay_provider_call_duration_seconds_bucket[5m])))",
           "legendFormat": "{{provider}} {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Routing first-choice share",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "sum by (first_choice, policy) (rate(sentinelpay_routing_decision_total[5m]))",
+          "legendFormat": "{{first_choice}} ({{policy}})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Circuit breaker state",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "fieldConfig": {"defaults": {"min": 0, "max": 2, "decimals": 0}},
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state{name=~\"mockpay|stripe\"}",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Bandit posterior mean (routing score gauge)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "fieldConfig": {"defaults": {"min": 0, "max": 1}},
+      "targets": [
+        {
+          "expr": "sentinelpay_routing_provider_score",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Routing fallbacks & breaker bypass",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "rate(sentinelpay_routing_fallback_total[5m])",
+          "legendFormat": "fallback"
+        },
+        {
+          "expr": "rate(sentinelpay_routing_breaker_bypass_total[5m])",
+          "legendFormat": "breaker bypass"
         }
       ]
     }
