@@ -158,5 +158,8 @@ $RECYCLE.BIN/
 .claude/settings.local.json
 .claude/*.local.json
 docs/superpowers/*
-docs/roadmap.md 
+docs/roadmap.md
 docs/plans/*
+# Personal interview prep. The repo is public and is itself the artifact an
+# interviewer reads -- prep notes about it stay local.
+docs/interview-notes.md

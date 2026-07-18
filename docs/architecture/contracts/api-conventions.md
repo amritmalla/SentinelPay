@@ -6,9 +6,9 @@ Companion to [openapi.yaml](openapi.yaml). Records the per-service API and namin
 
 ## Resource Naming
 
-- Plural, lowercase, kebab-case nouns: `/payments`, `/fraud-assessments`, `/reconciliation-runs`, `/providers/health`.
+- Plural, lowercase, kebab-case nouns: `/payments`, `/fraud-assessments`, `/ops/routing/providers`.
 - Sub-resources reflect ownership, max depth 2: `/payments/{payment_id}/refunds`, `/payments/{payment_id}/trail`.
-- **No verbs in paths.** State-changing actions are `POST`s to sub-resource collections (`/payments/{id}/refunds`, `/reconciliation-runs`).
+- **No verbs in paths.** State-changing actions are `POST`s to sub-resource collections (`/payments/{id}/refunds`).
 - Identifiers are UUIDv4 path params in snake_case (`payment_id`, `transaction_id`).
 - Payload keys are **snake_case** (backend surface, per naming-conventions).
 
@@ -33,7 +33,7 @@ Companion to [openapi.yaml](openapi.yaml). Records the per-service API and namin
 
 ## Idempotency
 
-- **Required** on every unsafe money operation: `POST /payments`, `POST /payments/{id}/refunds`, `POST /reconciliation-runs`.
+- **Required** on every unsafe money operation: `POST /payments/charge`, `POST /payments/{id}/refunds`.
 - `Idempotency-Key` header, **UUIDv4**, scoped `(merchant_id, key)`, **72-hour** retention (payment retry window; longer than the generic 24 h default because charge retries can span provider incidents).
 - Duplicate, completed key → **original resource** returned (200/201 as first time).
 - Same key, **different body** → `409 IDEMPOTENCY_CONFLICT`.
@@ -69,8 +69,8 @@ Business outcomes (`BLOCKED`, `IN_REVIEW`, `FAILED`) are **payment states**, not
 
 ## Tags and Operation Naming
 
-- Tags = plural resource names: `payments`, `fraud-assessments`, `providers`, `reconciliation-runs`, `webhooks`.
-- `operationId` in camelCase, globally unique, stable: `createPayment`, `getPayment`, `listPayments`, `createRefund`, `getPaymentTrail`, `getFraudAssessment`, `getProviderHealth`, `createReconciliationRun`, `receiveStripeWebhook`.
+- Tags = plural resource names: `payments`, `fraud-assessments`, `ops-routing`, `webhooks`.
+- `operationId` in camelCase, globally unique, stable: `createPayment`, `getPayment`, `listPayments`, `createRefund`, `getPaymentTrail`, `getPaymentSummary`, `getFraudAssessment`, `receiveStripeWebhook`.
 
 ## Versioning and Compatibility
 
@@ -81,7 +81,7 @@ Business outcomes (`BLOCKED`, `IN_REVIEW`, `FAILED`) are **payment states**, not
 ## Security
 
 - Public + ops endpoints require `bearerAuth` (JWT, HS256) validated at the API Gateway; identity propagated downstream via `X-User-Id`/`X-Correlation-Id`.
-- Authorization: merchants are scoped to their own payments; ops endpoints (`fraud-assessments`, `providers/health`, `reconciliation-runs`) require an ops role.
+- Authorization: merchants are scoped to their own payments; ops endpoints (`payments/{id}/trail`, `fraud-assessments`, `ops/**`) require an ops role. `OPS` is a **superset of `MERCHANT` for reads** — an operator who can open the decision trail can also list and open the payment it belongs to — but remains merchant-scoped, not cross-merchant.
 - `POST /webhooks/stripe` is `security: []` (provider-signed). **Signature verification is implemented** in `WebhookService` via `Webhook.constructEvent`; invalid signatures return `invalid_webhook_signature`.
 - No credentials in query strings. No PAN handled (Stripe test tokens). Provider API keys are secrets.
 
@@ -96,7 +96,8 @@ See inline `example`s in [openapi.yaml](openapi.yaml) (charge request/response, 
 
 ## Deferred Decisions
 
-- Stripe webhook signature verification (deferred per PRD; recommended before real money).
 - Separate `authorize`/`capture` endpoints (v1 charge combines them).
 - Client-facing optimistic-concurrency headers (`If-Match`/ETag) if client-driven updates are introduced.
-- Spectral/Redocly lint gate wiring into CI (lint run locally at authoring time; CI gate is an implementation-phase task).
+
+*Resolved since first authoring:* Stripe webhook signature verification is implemented (see Security
+above), and the Redocly lint gate runs in CI as the `openapi-lint` job.

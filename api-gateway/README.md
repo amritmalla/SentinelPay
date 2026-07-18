@@ -35,9 +35,10 @@ See [backend-architecture.md](../docs/architecture/backend-architecture.md).
 
 | Path | Downstream |
 |---|---|
-| `/api/v1/payments/**`, `/api/v1/reconciliation-runs/**`, `/api/v1/webhooks/**` | payment-service (`8082`) |
+| `/api/v1/payments/**`, `/api/v1/ops/**`, `/api/v1/webhooks/**` | payment-service (`8082`) |
 | `/api/v1/fraud-assessments/**` | risk-service (`8083`) |
-| `/api/v1/providers/**` | provider-service (`8085`) |
+
+provider-service (`8085`) has no REST surface — it participates over gRPC and Kafka, so the gateway does not route to it.
 
 ## Environment Variables
 

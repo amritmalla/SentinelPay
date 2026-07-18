@@ -20,8 +20,9 @@ verification.
 
 | Path pattern | Required authority |
 |---|---|
-| `POST /payments/charge`, refunds, `GET /payments`, `GET /payments/{id}` | `MERCHANT` (own data) |
-| `GET /payments/{id}/trail`, `/fraud-assessments/**`, `/providers/**`, `/reconciliation-runs/**` | `OPS` |
+| `POST /payments/charge`, refunds | `MERCHANT` (own data) |
+| `GET /payments`, `GET /payments/{id}`, `GET /payments/{id}/summary` | `MERCHANT` **or** `OPS` (own data / merchant-scoped) |
+| `GET /payments/{id}/trail`, `/fraud-assessments/**`, `/ops/**` | `OPS` |
 | `POST /webhooks/**` | none (Stripe signature); gateway secret still required downstream |
 | Actuator `health` / `info` | open |
 
@@ -32,6 +33,11 @@ Unmapped paths return **403** at the gateway and **denyAll** in services.
 Merchant endpoints derive `merchant_id` from the authenticated principal (`CurrentMerchant.id()`),
 not from request bodies or query parameters. Cross-merchant access returns **404**
 (`payment_not_found`) to avoid existence leakage.
+
+**`OPS` is scoped the same way.** The role grants access to *more surfaces* (decision trail, routing
+state), not to *more merchants* — an operator's reads are still filtered by the gateway-injected
+`merchant_id`. There is deliberately no cross-merchant read path; see
+[backend-architecture.md](backend-architecture.md#deferred-decisions).
 
 ## Trust boundaries
 

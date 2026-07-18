@@ -128,7 +128,7 @@ Each component notes the downstream architecture skill that will elaborate it.
 
 ### Provider Health Monitor (Provider Integration)
 - **Responsibility:** Track rolling per-provider success rate, latency, and error class; expose health; emit `ProviderHealthChanged`/`ProviderUnavailable`; feed routing.
-- **Interfaces:** REST (`/internal/providers/health`); Kafka producer.
+- **Interfaces:** Kafka producer; consumed in-process by payment-service routing. *As built, provider-service exposes **no REST surface** — health is read from Redis rolling windows by the router and surfaced operationally via metrics and `GET /api/v1/ops/routing/providers` (payment-service). A dedicated provider health API remains deferred (see [security-review.md](security-review.md#still-deferred)).*
 - **Dependencies:** Redis (rolling windows).
 - **I/O:** In: per-attempt outcomes. Out: health state + events.
 - **Persistence:** Redis rolling counters (ephemeral); state snapshot in Postgres.
@@ -246,7 +246,7 @@ Multiple stores, so documented explicitly.
 - **Sensitive data:** v1 uses **provider test tokens** (Stripe test mode) — no raw PAN is handled or stored, keeping PCI scope out of v1 by design. Provider API keys are secrets (env/secret store), never persisted in app tables.
 - **Tenant isolation:** single logical tenant in v1 (PRD non-goal); the merchant→payment scoping is the isolation seam the future multi-tenant model will extend. Explicitly **not** hardened for multi-tenant yet.
 - **Auditability:** the decision trail (risk factors + provider attempts + outcome) is the v1 audit surface; a dedicated immutable Audit service is deferred.
-- **Open compliance questions:** real-money PCI-DSS scope, webhook signature verification, and secret rotation are deferred to the venture path (PRD non-goals), not v1.
+- **Open compliance questions:** real-money PCI-DSS scope and secret rotation are deferred to the venture path (PRD non-goals), not v1. *(Webhook signature verification was listed here and has since been implemented — see [security-review.md](security-review.md#stripe-webhooks).)*
 
 ## Operational Considerations
 
@@ -270,3 +270,36 @@ Multiple stores, so documented explicitly.
 | [0009](adrs/0009-database-per-service.md) | Database-per-service (Postgres) + Redis for ephemeral state | Accepted | Isolated Postgres per service for ownership; Redis only for TTL'd counters/health/cache. |
 | [0010](adrs/0010-payment-optimistic-concurrency.md) | Optimistic concurrency + row locking for payment state | Accepted | `version` CAS + `SELECT FOR UPDATE` prevent lost updates across webhook/refund/sweep races. *(from data-architecture)* |
 | [0011](adrs/0011-bounded-event-and-outbox-retention.md) | Bounded retention for outbox tables and Kafka topics | Accepted | Published-outbox purge + 7-day Kafka retention prevent unbounded event storage. *(from data-architecture)* |
+| [0012](adrs/0012-ml-fraud-scoring-architecture.md) | ML fraud scoring via Python sidecar (HTTP) | Accepted | LightGBM + isotonic calibration behind the `RiskScorer` seam (ADR-0007), served from a Python service; fail-open to the rule scorer. *(v2)* |
+| [0013](adrs/0013-smart-routing-model-and-health-state.md) | Smart routing model and charge-path health state | Accepted | Per-provider health in Redis drives ranking on the charge path; routing state is a soft dependency and must fail open. *(v2)* |
+| [0014](adrs/0014-circuit-breaking-resilience4j.md) | Per-provider circuit breaking with Resilience4j | Accepted | Breakers isolate a failing provider without stranding traffic; complements rather than replaces failover. *(v2)* |
+| [0015](adrs/0015-adaptive-routing-bandit.md) | Adaptive routing via Thompson sampling bandit | Accepted | Beta-Bernoulli posteriors with decay + cost penalty select providers; deterministic split by payment-id hash keeps demos reproducible. *(v2)* |
+| [0016](adrs/0016-conservative-reconcile-semantics.md) | Conservative reconcile semantics for provider ambiguity | Accepted | Ambiguity is never treated as clean failure; reconcile replays original params and maps unknown states to AMBIGUOUS_TIMEOUT. Closed a real double-charge defect. *(v2)* |
+| [0017](adrs/0017-dashboard-surface-and-trail-redaction.md) | Dashboard surface and merchant trail redaction | Accepted | Defines what the SPA exposes per role; merchants get a redacted summary, the full decision trail stays `OPS`-only. *(v2)* |
+
+## v2 extension (Phases 9–12)
+
+The design above was approved for **v1** and is preserved at that scope. The following was
+delivered afterwards. Each item is owned by an ADR; this section is a map, not a second design.
+
+| Addition | What changed in the topology | ADR |
+|---|---|---|
+| **ML fraud scoring** | New `risk-model` Python service (FastAPI). risk-service calls it over HTTP behind the existing `RiskScorer` seam and **fails open** to the rule scorer on error or timeout, so the charge path keeps a working risk decision. | [0012](adrs/0012-ml-fraud-scoring-architecture.md) |
+| **Health-aware routing** | Per-provider health moved into Redis and onto the charge path as ranking input. Routing state is a **soft** dependency: if Redis is unavailable the router fails open rather than blocking a charge. | [0013](adrs/0013-smart-routing-model-and-health-state.md) |
+| **Circuit breaking** | Resilience4j breakers per provider, isolating a failing provider without stranding traffic (a never-strand guardrail keeps at least one candidate). | [0014](adrs/0014-circuit-breaking-resilience4j.md) |
+| **Adaptive routing** | Thompson-sampling bandit (Beta-Bernoulli posteriors, decay half-life, cost penalty) replaces static ordering. Traffic split is deterministic on a SHA-256 hash of the payment id, so behaviour is reproducible. | [0015](adrs/0015-adaptive-routing-bandit.md) |
+| **Real Stripe (test mode)** | The second provider slot became a real Stripe adapter, and reconcile semantics were tightened after a live run exposed a double-charge defect. | [0016](adrs/0016-conservative-reconcile-semantics.md) |
+| **Read surface + dashboard** | New `dashboard` SPA plus merchant summary and `OPS` routing-state endpoints in payment-service. | [0017](adrs/0017-dashboard-surface-and-trail-redaction.md) |
+
+### Design notes worth carrying forward
+
+- **Two adaptive loops share one signal.** The bandit and the circuit breakers both react to
+  provider failure, and the bandit reacts *faster* — it can demote a provider before the
+  breaker's rolling window fills, so the breaker never opens. They are complementary, not
+  redundant, but the interaction is real and observable (see ADR-0014 and ADR-0015).
+- **Every added dependency on the charge path fails open.** ML scoring, routing health, and the
+  bandit store are all advisory; none of them may block a charge. This is the rule that keeps
+  v2 additions from eroding the v1 availability story.
+- **Soft dependencies still need hard timeouts.** Redis defaults let a routing lookup hang a
+  charge for minutes; payment-service pins a 250 ms command timeout and rejects commands while
+  disconnected. Gateway and risk-service still use client defaults — a known gap.

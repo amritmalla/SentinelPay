@@ -19,6 +19,8 @@ Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
 
 ## Table of contents
 
+- [Why this exists](#why-this-exists)
+- [Evaluate in 10 minutes](#evaluate-in-10-minutes)
 - [Documentation](#documentation)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -33,6 +35,59 @@ Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
 - [Status](#status)
 - [Contributing and license](#contributing-and-license)
 
+## Why this exists
+
+Payment orchestration is a domain where correctness claims are **falsifiable**. "No double
+charge" is binary — a system either violated it or it didn't, and you can write a test that
+proves which. That is unusual, and it is the reason this problem was chosen: it makes every
+claim in this README checkable rather than rhetorical.
+
+The tension is built in. Failover is what makes a payment platform resilient, and failover is
+also precisely how customers get charged twice. Those two goals fight each other on every
+ambiguous provider response, so the interesting engineering is not the happy path — it is
+deciding what to do when a provider times out and you genuinely do not know whether money
+moved.
+
+Two consequences shape the codebase:
+
+- **Ambiguity is never treated as failure.** An unknown provider outcome triggers a reconcile
+  against the provider before any failover ([ADR-0016](docs/architecture/adrs/0016-conservative-reconcile-semantics.md)).
+  This is also where a real double-charge bug was found and fixed — the reconcile replayed the
+  charge with the wrong amount, which the provider rejected as an idempotency violation, which
+  looked like a hard failure, which triggered a second charge.
+- **The correctness gate is integration tests, not unit tests.** `./mvnw verify` runs the full
+  Testcontainers suite, including a test asserting **double-charge = 0** across every failover
+  path. Real-provider behaviour is exercised against Stripe test mode, because mocks encode the
+  author's assumptions rather than the provider's actual contract.
+
+Decisions and their tradeoffs are recorded as [ADRs](docs/architecture/adrs/); where something
+is deliberately not built, [Status](#status) says so.
+
+## Evaluate in 10 minutes
+
+Reviewing this rather than running it? The shortest path to seeing whether it works:
+
+```bash
+docker compose up --build     # full stack
+scripts/demo.sh               # scripts/demo.ps1 on Windows
+```
+
+The demo walks a charge through risk scoring, an idempotent replay (same key → same payment),
+a routing shift as a provider degrades, and a failover that does **not** double-charge. It
+prints a merchant id at the end — sign in to the dashboard at `localhost:5173` with it.
+
+| Want to check | Look at |
+| --- | --- |
+| Does the guarantee hold? | `FailoverChargeStripeProviderIT`, or `npx newman run postman/…` |
+| Why is it built this way? | [ADRs](docs/architecture/adrs/) (17 records) |
+| What is the API? | [OpenAPI](docs/architecture/contracts/openapi.yaml) — every documented path is implemented |
+| What is *not* done? | [Status](#status) |
+
+Two things that commonly confuse a first run: payments are **merchant-scoped** (the demo mints
+a fresh merchant each run, so an empty dashboard list usually means you are signed in as a
+different merchant), and `./mvnw verify` needs the compose app containers stopped or the test
+ports collide.
+
 ## Documentation
 
 Start at [docs/README.md](docs/README.md). The approved chain:
@@ -45,7 +100,7 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 | [Backend Architecture](docs/architecture/backend-architecture.md) | Service contracts, domain model, flows |
 | [OpenAPI](docs/architecture/contracts/openapi.yaml) | Public and ops REST contract (OpenAPI 3.1, lint-clean) |
 | [Observability](docs/architecture/observability.md) | Signals, metric catalog, SLOs, alerts, dashboards |
-| [ADRs](docs/architecture/adrs/) | Architecture decision records 0001–0012 |
+| [ADRs](docs/architecture/adrs/) | Architecture decision records 0001–0017 |
 
 ## Features
 
@@ -54,7 +109,7 @@ Start at [docs/README.md](docs/README.md). The approved chain:
 - **Explainable risk scoring** — pluggable rule-based scorer over gRPC returning `score ∈ [0,1]`, contributing factors, and `model_version`; Redis velocity counters; amount-based fallback on gRPC deadline (flagged in the trail).
 - **Decision trail** — every charge composes its risk factors and provider attempts into an auditable, explainable record.
 - **Refunds** — full/partial refunds against completed payments, emitted as events.
-- **Stripe webhook reconciliation** — idempotent inbound webhook handling (signature verification deferred in v1).
+- **Stripe webhook reconciliation** — idempotent inbound webhook handling with HMAC signature verification (`Webhook.constructEvent`); unsigned or mismatched payloads are rejected.
 - **Security boundary** — JWT (HS256) auth at the gateway with identity-header injection; merchant-scoped access and default-deny ops endpoints.
 - **Observability** — RED + business metrics (recovered-authorization, a double-capture tripwire, per-provider latency), distributed traces across REST → gRPC → Kafka, SLOs with burn-rate alerts, and Grafana dashboards.
 
@@ -305,7 +360,7 @@ Repeating the same `Idempotency-Key` returns the original result instead of char
 | `GET` | `/api/v1/fraud-assessments/{txn_id}` | OPS | Risk assessment for a transaction |
 | `POST` | `/api/v1/webhooks/stripe` | none | Inbound Stripe webhook |
 
-The OpenAPI contract also reserves two ops endpoints — `GET /api/v1/providers/health` and `POST /api/v1/reconciliation-runs` — that are **contract-only in this build** (reconciliation currently runs as a scheduled sweep, not an on-demand endpoint; provider health is exposed via metrics, see [Observability](#observability)).
+The table above is the complete API surface: every documented path is implemented. Two ops endpoints (`GET /api/v1/providers/health`, `POST /api/v1/reconciliation-runs`) were previously reserved in the contract without an implementation and have been removed — a published OpenAPI document is a contract clients generate against, so it should describe only what actually answers. Reconciliation runs as a scheduled sweep, and provider health is exposed via metrics (see [Observability](#observability)) and `GET /api/v1/ops/routing/providers`.
 
 ## Running against real Stripe (test mode)
 
@@ -361,14 +416,31 @@ Full reference: [docs/architecture/observability.md](docs/architecture/observabi
 
 | Area | State |
 | --- | --- |
-| Architecture | Complete and approved (PRD → system-design → data/backend architecture, ADRs 0001–0011) |
+| Architecture | Complete and approved (PRD → system-design → data/backend architecture, ADRs 0001–0017) |
 | Charge & failover | Delivered — routing, in-request failover, ambiguous-timeout reconciliation, no-double-charge gate |
 | Risk pipeline | Delivered — gRPC scoring, Redis velocity, explainable trail, amount-based fallback |
+| ML fraud scoring | Delivered — LightGBM + isotonic calibration, SHAP explanations, PSI drift panel |
+| Smart routing | Delivered — Thompson-sampling bandit, Resilience4j breakers, never-strand guardrail |
+| Stripe (test mode) | Delivered — real test-mode adapter, conservative reconcile, webhook signature verification |
 | Payment surface | Delivered — charge, list/get, refunds, decision trail, Stripe webhook |
+| Dashboard | Delivered — React SPA for merchant payments and ops routing state |
 | Security | Delivered — gateway JWT auth, identity injection, merchant-scoping, default-deny ops |
 | Quality gate | Delivered — CI (`./mvnw verify`), REST contract tests, coverage, OpenAPI lint |
 | Observability | Delivered — RED + business metrics, distributed tracing, SLO burn-rate alerts, dashboards |
 | Packaging | Delivered — one-command `docker compose up`, narrated demo, hardened images |
+
+### Deliberately not built
+
+Stated plainly so the scope is legible:
+
+| Gap | Note |
+| --- | --- |
+| Load and performance testing | **No throughput or latency numbers are claimed anywhere**, because none have been measured |
+| Cross-merchant ops | The OPS role is merchant-scoped; a platform-wide operator view is an open product question, not an oversight |
+| Multi-region / DR | Single-region by design for this build; no failover or RPO/RTO story |
+| Refund UI | `POST /payments/{id}/refunds` exists in the API but is not surfaced in the dashboard |
+| Dashboard test depth | `PaymentDetailPage` and `OpsRoutingPage` have no component tests |
+| Redis fail-fast coverage | Applied in payment-service; gateway and risk-service still use client defaults |
 
 ## Contributing and license
 

@@ -23,10 +23,6 @@ tags:
     description: Charge, retrieve, and refund payments.
   - name: fraud-assessments
     description: Risk assessment audit (operations).
-  - name: providers
-    description: Provider health (operations).
-  - name: reconciliation-runs
-    description: Manual reconciliation trigger (operations).
   - name: ops-routing
     description: Live routing state (operations, payment-service).
   - name: webhooks
@@ -236,48 +232,6 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
-
-  /providers/health:
-    get:
-      tags: [providers]
-      operationId: getProviderHealth
-      summary: Current per-provider health (operations)
-      responses:
-        "200":
-          description: Provider health snapshot.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data]
-                properties:
-                  data:
-                    type: array
-                    items: { $ref: "#/components/schemas/ProviderHealth" }
-        "401": { $ref: "#/components/responses/Unauthenticated" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-
-  /reconciliation-runs:
-    post:
-      tags: [reconciliation-runs]
-      operationId: createReconciliationRun
-      summary: Trigger a reconciliation sweep of in-flight payments (operations)
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      responses:
-        "202":
-          description: Reconciliation run accepted.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [run_id, status]
-                properties:
-                  run_id: { type: string, format: uuid }
-                  status: { type: string, enum: [ACCEPTED] }
-        "401": { $ref: "#/components/responses/Unauthenticated" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "429": { $ref: "#/components/responses/RateLimited" }
 
   /webhooks/stripe:
     post:
@@ -622,14 +576,6 @@ components:
         wait_duration_open_ms: { type: integer, minimum: 1 }
         permitted_calls_half_open: { type: integer, minimum: 1 }
         minimum_number_of_calls: { type: integer, minimum: 1 }
-    ProviderHealth:
-      type: object
-      required: [provider, state, success_rate]
-      properties:
-        provider: { type: string, enum: [stripe, mockpay] }
-        state: { type: string, enum: [HEALTHY, DEGRADED, UNAVAILABLE] }
-        success_rate: { type: number, minimum: 0, maximum: 1 }
-        p95_latency_ms: { type: integer }
     ErrorEnvelope:
       type: object
       required: [error]
