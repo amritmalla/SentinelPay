@@ -39,6 +39,12 @@ docs/
 | system-design (+ ADRs 0001–0009) | approved · v0.2.0 |
 | data-architecture (+ ADRs 0010–0011) | approved · v0.1.0 |
 | backend-architecture (+ OpenAPI) | approved |
+| v2 extension (ADRs 0012–0017) | delivered — ML scoring, adaptive routing, real Stripe, dashboard |
+
+The architecture chain above was approved for **v1** and is kept at its approved version. Work
+delivered after that (Phases 9–12) is recorded in ADRs 0012–0017 and summarised in the *v2 extension*
+sections of [system-design.md](architecture/system-design.md#v2-extension-phases-9-12) and
+[backend-architecture.md](architecture/backend-architecture.md#v2-extension-phases-9-12).
 
 ## History note
 

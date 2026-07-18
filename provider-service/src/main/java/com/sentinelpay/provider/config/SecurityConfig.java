@@ -23,8 +23,10 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(gatewayIdentityFilter, UsernamePasswordAuthenticationFilter.class)
+                // provider-service exposes no REST surface today -- it participates over gRPC and
+                // Kafka. Everything under /api/** stays authenticated and anything else is denied,
+                // so adding a controller cannot accidentally publish an unauthenticated endpoint.
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/providers/**").hasAuthority("OPS")
                         .requestMatchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
                         .requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated()
                         .requestMatchers("/api/**").authenticated()

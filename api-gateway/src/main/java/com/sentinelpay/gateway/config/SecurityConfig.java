@@ -70,8 +70,6 @@ public class SecurityConfig {
                         .pathMatchers(
                                 "/api/v1/payments/*/trail",
                                 "/api/v1/fraud-assessments/**",
-                                "/api/v1/providers/**",
-                                "/api/v1/reconciliation-runs/**",
                                 "/api/v1/ops/**")
                         .hasAuthority("OPS")
                         // OPS is a superset of MERCHANT for reads: an operator who can already see

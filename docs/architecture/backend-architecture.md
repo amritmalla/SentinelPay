@@ -8,7 +8,7 @@ approved (2026-07-12).
 
 - System design: [system-design.md](system-design.md) (approved v0.2.0)
 - Data architecture: [data-architecture.md](data-architecture.md) (approved v0.1.0)
-- ADRs: 0001 (microservices), 0002 (sync critical path), 0003 (gRPC for Risk), 0004 (decisioning folded into Payment), 0005 (exactly-once capture), 0006 (provider abstraction/MockPay), 0007 (pluggable risk scorer), 0008 (transactional outbox), 0009 (DB-per-service), 0010 (payment optimistic concurrency), 0011 (bounded event/outbox retention)
+- ADRs: 0001 (microservices), 0002 (sync critical path), 0003 (gRPC for Risk), 0004 (decisioning folded into Payment), 0005 (exactly-once capture), 0006 (provider abstraction/MockPay), 0007 (pluggable risk scorer), 0008 (transactional outbox), 0009 (DB-per-service), 0010 (payment optimistic concurrency), 0011 (bounded event/outbox retention). Post-approval: 0012–0017 (see [v2 extension](#v2-extension-phases-9-12))
 - PRD sections: [PRD.md](../product/PRD.md) — Scope (5 outcomes), Non-goals, Success Metrics (double-charge=0, ≥95% recovered auth, ≤150 ms overhead, 100% trail coverage)
 - Implementation ecosystem: **Spring Boot 3.2 / Java 17** (fixed by the existing stack per PRD constraints)
 
@@ -28,7 +28,7 @@ This document covers the whole v1 backend (5 services) as one system, organized 
 
 - Real-money settlement, PCI cardholder-data handling, or raw PAN (v1 uses provider test tokens).
 - Multi-tenant org/user management, RBAC beyond merchant-scoping, billing (Merchant/Identity contexts — deferred).
-- Cost-optimized/ML routing, adaptive/behavioral fraud signals, analytics read models (deferred).
+- Analytics read models (deferred). *(ML fraud scoring and adaptive cost-aware routing were originally deferred here; both were delivered in the v2 extension — see [v2 extension](#v2-extension-phases-9-12) and ADR-0012/0015.)*
 - A standalone Decision Service or Audit Service (folded / deferred per ADR-0004).
 - Persistence schema/DDL (owned by `implementations/data/postgres`), deployment topology (owned by infrastructure-platform).
 
@@ -36,7 +36,7 @@ This document covers the whole v1 backend (5 services) as one system, organized 
 
 - **Charge semantics:** v1 charge performs **authorize + immediate capture** in one synchronous call. *Recommended* for v1 simplicity; separate `authorize`/`capture` lifecycle deferred. Owner: self.
 - **REVIEW handling:** a risk `REVIEW` recommendation **holds** the payment (`IN_REVIEW`, no capture) with **no manual-approve workflow** in v1. *Recommended*; manual review is a future Risk-Analyst capability. Owner: self.
-- **Stripe webhook signature verification:** implemented in payment-service (`WebhookService`); PRD “deferred” note is stale.
+- ~~**Stripe webhook signature verification.**~~ **Resolved** — implemented in payment-service (`WebhookService`, `Webhook.constructEvent`); invalid or missing signatures return 400. See [security-review.md](security-review.md#stripe-webhooks).
 
 ## Backend Boundary
 
@@ -74,7 +74,7 @@ Domain concepts are behavioral, not table shapes — persistence layout is owned
 | `ScoreTransaction` | Payment Service (internal) | Transaction features | `RiskAssessment` (score, factors, recommendation); `RiskAssessed` |
 | `AuthorizeWithProvider` / `CaptureWithProvider` | Payment Service (internal) | Selected provider; downstream idempotency key | Normalized provider outcome; `provider_txn_ref` |
 | `ReconcileAmbiguousAttempt` | Payment Service (self / sweep job) | Attempt in indeterminate state | Resolves attempt to authorized/failed without double-capture |
-| `HandleProviderWebhook` | Stripe (inbound) | (Signature — deferred) | Payment state reconciled idempotently |
+| `HandleProviderWebhook` | Stripe (inbound) | HMAC signature verified (`Stripe-Signature`) | Payment state reconciled idempotently |
 
 ### Queries
 
@@ -197,7 +197,7 @@ Failure handling:
 1. Relay publishes `payment.*`/`fraud.alert.high`. 2. Notification consumes, dedups by `eventId`, renders, sends via MailHog, records `delivery_attempt`. Poison message → DLQ after N retries; core charge path unaffected.
 
 ### Stripe webhook reconciliation
-1. `POST /api/v1/webhooks/stripe`. 2. (Signature verify — deferred.) 3. Look up payment by provider ref; idempotently apply terminal state if not already applied. Duplicate/late webhook → no-op.
+1. `POST /api/v1/webhooks/stripe` (raw body). 2. Verify `Stripe-Signature` via `Webhook.constructEvent`; invalid or missing → **400**, nothing persisted. 3. Look up payment by provider ref; idempotently apply terminal state if not already applied. Duplicate/late webhook → no-op (dedup by Stripe event id).
 
 ## Transactions and Consistency
 
@@ -243,7 +243,7 @@ Full schema/index/retention detail is in [data-architecture.md](data-architectur
 | Public REST (charge/refund/get/list) | JWT (HS256) at Gateway | Merchant-scoped to own payments | Test tokens only; no PAN | Trail + `payment.*` events |
 | Ops REST (trail/audit/health/reconcile) | JWT | Ops role | Risk factors | Access logged w/ correlationId |
 | Payment→Risk gRPC, Payment→Provider REST | Network trust (internal); headers from gateway | Not exposed via gateway | Features may include email | `risk.assessed` |
-| Stripe webhook | **Signature verification (deferred)** | n/a | Provider event | Reconciliation logged |
+| Stripe webhook | **HMAC signature verification** (`Webhook.constructEvent`) | n/a | Provider event | Reconciliation logged |
 | Provider credentials | — | — | API keys = secrets (env/secret store), never in tables | Key use audited |
 
 Alignment with security-standards: default-deny on ops endpoints, no secrets in code/logs, correlation-ID propagation, PII = test emails only. Tenant isolation is single-tenant v1 with `merchant_id` as the future seam (not hardened — PRD non-goal). mTLS between services deferred.
@@ -271,7 +271,7 @@ Alignment with security-standards: default-deny on ops endpoints, no secrets in 
 - Constraints/indexes from [data-architecture.md](data-architecture.md): `unique(merchant_id, idempotency_key)`, `version` column, `unique(transaction_id)`, `unique(event_id)`, partial outbox/in-flight indexes. Flyway per service.
 
 ### Security Review (`spring-security-auth-review`)
-- JWT validation at gateway + header-trust boundary; ops-role authorization; secret handling for provider keys; decide Stripe webhook signature verification (currently deferred).
+- JWT validation at gateway + header-trust boundary; ops-role authorization; secret handling for provider keys. Stripe webhook signature verification is implemented; see [security-review.md](security-review.md).
 
 ### Testing (`quality-engineering`)
 - Contract tests for the public REST (`openapi.yaml`) and the gRPC proto. **Integration tests (Testcontainers) asserting double-charge=0 across every failover/ambiguous-timeout path** — the correctness merge gate. Chaos test toggling MockPay to measure recovered-auth ≥95%.
@@ -283,5 +283,52 @@ Alignment with security-standards: default-deny on ops endpoints, no secrets in 
 
 - Separate `authorize`/`capture` lifecycle (v1 combines them). Owner: self; when: post-v1.
 - Manual-review approval workflow for `IN_REVIEW`. Owner: self; when: Risk-Analyst feature phase.
-- Stripe webhook signature verification. Owner: self; when: before any real-money path.
 - Standalone Decision Service extraction (ADR-0004 seam). Owner: self; when: decisioning grows independent consumers.
+- Cross-merchant ops access. The `OPS` role is merchant-scoped; a platform-wide operator view is an open product question. Owner: self; when: the operator persona is settled.
+
+*(Stripe webhook signature verification was listed here and has since been implemented.)*
+
+## v2 extension (Phases 9–12)
+
+This document was approved for **v1** and is preserved at that scope. Backend-relevant changes
+delivered afterwards are summarised here; the reasoning lives in ADRs 0012–0017.
+
+### Service topology delta
+
+| Change | Detail |
+|---|---|
+| New service: `risk-model` | Python/FastAPI, LightGBM + isotonic calibration, SHAP per-decision explanations. Called by risk-service over HTTP behind the existing `RiskScorer` seam (ADR-0007), so the v1 contract is unchanged. |
+| New deployable: `dashboard` | React/Vite SPA served by nginx; consumes only the public and ops REST surface — no direct DB or service access. |
+| `provider-service` | Still has **no REST surface**; participates over gRPC and Kafka only. |
+
+### New endpoints
+
+| Endpoint | Role | Notes |
+|---|---|---|
+| `GET /api/v1/payments/{id}/summary` | `MERCHANT` | Redacted view — risk band and outcome, not the full trail (ADR-0017). |
+| `GET /api/v1/ops/routing/providers` | `OPS` | Live provider health, bandit posteriors, breaker state. |
+| `GET /api/v1/ops/routing/config` | `OPS` | Active routing policy and thresholds. |
+
+### Authorization change
+
+`OPS` became a **superset of `MERCHANT` for reads**. Previously the two roles were disjoint, so an
+operator could open the decision trail (the most sensitive payload) but received 403 listing or
+opening the payment it belonged to. `/api/v1/payments/**` now accepts either authority, with the
+trail matcher kept above it so the `MERCHANT` → 403 boundary is unchanged. **`OPS` remains
+merchant-scoped**; see [security-review.md](security-review.md#merchant-data-scoping).
+
+### Idempotency and reconcile
+
+The v1 contract (idempotency key → unique constraint → state machine) is unchanged, with one
+correction. Reconcile after an ambiguous provider response must **replay the original charge
+parameters**; replaying with different parameters violates the provider's idempotency contract,
+returns an error, and — if that error is treated as a clean failure — triggers a failover that
+double-charges. Ambiguity now maps conservatively (unknown → `AMBIGUOUS_TIMEOUT`, never
+`HARD_FAIL`). This closed a real defect; see [ADR-0016](adrs/0016-conservative-reconcile-semantics.md).
+
+### Timeout posture
+
+Routing state (Redis) is a **soft** dependency and must not block a charge. Payment-service pins a
+250 ms Lettuce command timeout with `DisconnectedBehavior.REJECT_COMMANDS`; the client defaults
+(60 s, queue-while-reconnecting) previously let a Redis outage hang a charge for minutes. Gateway
+and risk-service still use defaults — a known, tracked gap.
