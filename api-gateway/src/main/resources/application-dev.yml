@@ -1,4 +1,13 @@
 # Local development: verbose logging (console via logback dev profile), full health detail, full trace sampling.
+sentinelpay:
+  gateway:
+    cors:
+      # Dashboard SPA origin. Applied by DevSecurityConfig inside the security filter chain —
+      # spring.cloud.gateway.globalcors does not work here because Spring Security runs first and
+      # rejects the unauthenticated preflight, and globalcors never covers the gateway's own
+      # /dev/token controller.
+      allowed-origins: http://localhost:5173
+
 logging:
   level:
     com.sentinelpay: DEBUG

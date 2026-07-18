@@ -12,6 +12,10 @@ spring:
           uri: ${PAYMENT_SERVICE_URI:http://localhost:8082}
           predicates:
             - Path=/api/v1/payments/**
+        - id: ops
+          uri: ${PAYMENT_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/ops/**
         - id: reconciliation-runs
           uri: ${PAYMENT_SERVICE_URI:http://localhost:8082}
           predicates:

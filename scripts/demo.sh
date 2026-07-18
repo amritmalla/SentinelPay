@@ -163,6 +163,12 @@ echo "     for a fixed window to age out — its success count (alpha) climbs ba
 echo
 
 echo "▶ Where to look next"
+echo "   Dashboard:           http://localhost:5173"
+echo "     Paste this merchant id at login (the demo uses a fresh one each run, so the"
+echo "     pre-filled default will show an empty list):"
+echo "       ${MERCHANT_ID}"
+echo "     Log in as OPS to see risk factors and routing rationale on the blocked payment;"
+echo "     MERCHANT shows the redacted summary only. Pin the id with MERCHANT_ID=... to reuse it."
 echo "   Grafana dashboards:  http://localhost:3000  (Provider Health → routing + breaker panels)"
 echo "   Tempo traces:        search sentinelpay.correlation_id=demo-corr-happy"
 echo "   MailHog inbox:       http://localhost:8025"

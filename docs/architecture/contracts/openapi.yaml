@@ -27,6 +27,8 @@ tags:
     description: Provider health (operations).
   - name: reconciliation-runs
     description: Manual reconciliation trigger (operations).
+  - name: ops-routing
+    description: Live routing state (operations, payment-service).
   - name: webhooks
     description: Inbound provider webhooks.
 
@@ -169,6 +171,51 @@ paths:
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /payments/{payment_id}/summary:
+    parameters:
+      - $ref: "#/components/parameters/PaymentId"
+    get:
+      tags: [payments]
+      operationId: getPaymentSummary
+      summary: Merchant-safe payment summary (redacted risk + outcome)
+      responses:
+        "200":
+          description: Redacted payment summary for merchants.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentSummary" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /ops/routing/providers:
+    get:
+      tags: [ops-routing]
+      operationId: getOpsRoutingProviders
+      summary: Per-provider routing health, bandit posteriors, and breaker state
+      responses:
+        "200":
+          description: Live provider routing snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsRoutingProviders" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /ops/routing/config:
+    get:
+      tags: [ops-routing]
+      operationId: getOpsRoutingConfig
+      summary: Active routing policy and threshold configuration
+      responses:
+        "200":
+          description: Routing configuration echo (no secrets).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsRoutingConfig" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /fraud-assessments/{transaction_id}:
     parameters:
@@ -474,6 +521,107 @@ components:
         attempts:
           type: array
           items: { $ref: "#/components/schemas/PaymentAttempt" }
+    PaymentSummary:
+      type: object
+      required: [payment_id, status, amount_cents, currency, created_at, outcome]
+      properties:
+        payment_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/PaymentStatus" }
+        amount_cents: { type: integer }
+        currency: { $ref: "#/components/schemas/Currency" }
+        created_at: { type: string, format: date-time }
+        risk: { $ref: "#/components/schemas/MerchantRiskSummary" }
+        outcome: { $ref: "#/components/schemas/PaymentOutcomeSummary" }
+    MerchantRiskSummary:
+      type: object
+      required: [recommendation, score_band]
+      properties:
+        recommendation: { type: string, enum: [APPROVE, REVIEW, BLOCK] }
+        score_band: { type: string, enum: [LOW, MEDIUM, HIGH] }
+    PaymentOutcomeSummary:
+      type: object
+      required: [provider_count, recovered, final_provider_slot]
+      properties:
+        provider_count: { type: integer, minimum: 0 }
+        recovered: { type: boolean }
+        final_provider_slot: { type: [string, "null"], enum: [stripe, mockpay, null] }
+    OpsRoutingProviders:
+      type: object
+      required: [degraded, providers]
+      properties:
+        degraded: { type: boolean }
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/OpsProviderRouting" }
+    OpsProviderRouting:
+      type: object
+      required: [provider, enabled, breaker_state, health, bandit, fee]
+      properties:
+        provider: { type: string, enum: [stripe, mockpay] }
+        enabled: { type: boolean }
+        breaker_state: { type: string, enum: [CLOSED, OPEN, HALF_OPEN, DISABLED] }
+        health: { $ref: "#/components/schemas/OpsProviderHealth" }
+        bandit: { $ref: "#/components/schemas/OpsBanditPosterior" }
+        fee: { $ref: "#/components/schemas/OpsProviderFee" }
+    OpsProviderHealth:
+      type: object
+      required: [success_rate, latency_ewma_ms, degraded]
+      properties:
+        success_rate: { type: number, minimum: 0, maximum: 1 }
+        latency_ewma_ms: { type: integer, minimum: 0 }
+        degraded: { type: boolean }
+    OpsBanditPosterior:
+      type: object
+      required: [alpha, beta, mean, degraded]
+      properties:
+        alpha: { type: number, minimum: 0 }
+        beta: { type: number, minimum: 0 }
+        mean: { type: number, minimum: 0, maximum: 1 }
+        degraded: { type: boolean }
+    OpsProviderFee:
+      type: object
+      required: [fee_bps, fee_fixed_cents]
+      properties:
+        fee_bps: { type: integer, minimum: 0 }
+        fee_fixed_cents: { type: integer, minimum: 0 }
+    OpsRoutingConfig:
+      type: object
+      required: [enabled, policy, split, health_window_minutes, latency_ceiling_ms, latency_ewma_alpha, scored, bandit, breaker]
+      properties:
+        enabled: { type: boolean }
+        policy: { type: string, enum: [static, scored, bandit] }
+        split:
+          type: object
+          additionalProperties: { type: integer, minimum: 0, maximum: 100 }
+        health_window_minutes: { type: integer, minimum: 1 }
+        latency_ceiling_ms: { type: integer, minimum: 1 }
+        latency_ewma_alpha: { type: number, minimum: 0, maximum: 1 }
+        scored: { $ref: "#/components/schemas/OpsScoredConfig" }
+        bandit: { $ref: "#/components/schemas/OpsBanditConfig" }
+        breaker: { $ref: "#/components/schemas/OpsBreakerConfig" }
+    OpsScoredConfig:
+      type: object
+      required: [weight_success, weight_latency, cost_tiebreak_epsilon]
+      properties:
+        weight_success: { type: number, minimum: 0, maximum: 1 }
+        weight_latency: { type: number, minimum: 0, maximum: 1 }
+        cost_tiebreak_epsilon: { type: number, minimum: 0, maximum: 1 }
+    OpsBanditConfig:
+      type: object
+      required: [decay_half_life_minutes, cost_weight]
+      properties:
+        decay_half_life_minutes: { type: integer, minimum: 1 }
+        cost_weight: { type: number, minimum: 0, maximum: 1 }
+    OpsBreakerConfig:
+      type: object
+      required: [enabled, sliding_window_size, failure_rate_threshold, wait_duration_open_ms, permitted_calls_half_open, minimum_number_of_calls]
+      properties:
+        enabled: { type: boolean }
+        sliding_window_size: { type: integer, minimum: 1 }
+        failure_rate_threshold: { type: integer, minimum: 1, maximum: 100 }
+        wait_duration_open_ms: { type: integer, minimum: 1 }
+        permitted_calls_half_open: { type: integer, minimum: 1 }
+        minimum_number_of_calls: { type: integer, minimum: 1 }
     ProviderHealth:
       type: object
       required: [provider, state, success_rate]

@@ -152,7 +152,7 @@ docker compose up --build
 # or: make up
 ```
 
-That starts infra, the observability stack, and all five services. Gateway: **[http://localhost:8080](http://localhost:8080)**. Grafana, Tempo, and MailHog come up with the stack. Compose uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever work — **demo posture only; never ship `dev` to production.**
+That starts infra, the observability stack, all five services, and the **dashboard** on port 5173. Gateway: **[http://localhost:8080](http://localhost:8080)**. Dashboard: **[http://localhost:5173](http://localhost:5173)** (dev JWT via `/dev/token`; token kept in memory only). Grafana, Tempo, and MailHog come up with the stack. Compose uses the `dev,observability` profile on the gateway and payment service so `/dev/token` and the provider-control demo lever work — **demo posture only; never ship `dev` to production.**
 
 ```bash
 bash scripts/demo.sh      # Git Bash / macOS / Linux
@@ -297,8 +297,11 @@ Repeating the same `Idempotency-Key` returns the original result instead of char
 | `POST` | `/api/v1/payments/charge` | MERCHANT | Create/charge a payment (`Idempotency-Key` header) |
 | `GET` | `/api/v1/payments` | MERCHANT | List payments (merchant-scoped, paginated) |
 | `GET` | `/api/v1/payments/{id}` | MERCHANT | Retrieve a payment |
+| `GET` | `/api/v1/payments/{id}/summary` | MERCHANT | Redacted payment summary (risk band + outcome) |
 | `POST` | `/api/v1/payments/{id}/refunds` | MERCHANT | Refund a completed payment |
 | `GET` | `/api/v1/payments/{id}/trail` | OPS | Decision trail (risk factors + attempts) |
+| `GET` | `/api/v1/ops/routing/providers` | OPS | Live provider health, bandit, breaker state |
+| `GET` | `/api/v1/ops/routing/config` | OPS | Active routing policy and thresholds |
 | `GET` | `/api/v1/fraud-assessments/{txn_id}` | OPS | Risk assessment for a transaction |
 | `POST` | `/api/v1/webhooks/stripe` | none | Inbound Stripe webhook |
 
