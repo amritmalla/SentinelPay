@@ -16,6 +16,8 @@ import com.sentinelpay.payment.application.model.ProviderOutcome.Outcome;
 import com.sentinelpay.payment.application.model.RefundCommand;
 import com.sentinelpay.payment.application.model.RefundResult;
 import com.sentinelpay.payment.application.port.RiskEvaluator;
+import com.sentinelpay.payment.application.routing.RoutingDecision;
+import com.sentinelpay.payment.application.routing.RoutingDecisionMapper;
 import com.sentinelpay.payment.domain.PaymentStateMachine;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
@@ -149,6 +151,14 @@ public class PaymentTransactionService {
             }
             default -> DecisionResult.approve();
         };
+    }
+
+    @Transactional
+    public void persistRoutingDecision(UUID paymentId, RoutingDecision decision) {
+        PaymentEntity payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new IllegalStateException("Payment not found: " + paymentId));
+        payment.setRoutingDecisionJson(RoutingDecisionMapper.toJson(decision, objectMapper));
+        paymentRepository.save(payment);
     }
 
     @Transactional

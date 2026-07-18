@@ -41,10 +41,7 @@ class StripeProviderWireMockIT {
         registry.add("sentinelpay.providers.stripe.mode", () -> "real");
         registry.add("sentinelpay.providers.stripe.api-key", () -> "sk_test_wiremock");
         registry.add("sentinelpay.providers.stripe.base-url", wireMock::baseUrl);
-        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
-        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        PaymentTestContainers.register(registry);
     }
 
     @BeforeEach

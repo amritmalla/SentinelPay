@@ -41,10 +41,7 @@ class GrpcRiskEvaluatorIT {
         // Generous deadline: the JaCoCo agent instruments gRPC/netty, so the cold first call is slow.
         // This test asserts the success path, not latency; the tight production deadline is unaffected.
         registry.add("sentinelpay.risk.grpc.deadline-ms", () -> "5000");
-        registry.add("spring.datasource.url", PaymentTestContainers.POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", PaymentTestContainers.POSTGRES::getUsername);
-        registry.add("spring.datasource.password", PaymentTestContainers.POSTGRES::getPassword);
-        registry.add("spring.kafka.bootstrap-servers", PaymentTestContainers.KAFKA::getBootstrapServers);
+        PaymentTestContainers.register(registry);
     }
 
     static {

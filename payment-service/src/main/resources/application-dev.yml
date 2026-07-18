@@ -6,3 +6,19 @@ management:
   endpoint:
     health:
       show-details: always
+
+sentinelpay:
+  routing:
+    # 10% Stripe-first canary over the ranked head (deterministic by payment_id).
+    split:
+      stripe: 10
+    breaker:
+      minimum-number-of-calls: 5
+      wait-duration-open-ms: 5000
+  merchants:
+    routing-rules:
+      merchants:
+        # Demo ops merchant (scripts/demo.sh) — cap MockPay exposure on large tickets.
+        "00000000-0000-0000-0000-000000000001":
+          max-amount-cents:
+            mockpay: 500000

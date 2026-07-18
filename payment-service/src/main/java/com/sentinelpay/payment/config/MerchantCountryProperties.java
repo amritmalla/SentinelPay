@@ -1,5 +1,7 @@
 package com.sentinelpay.payment.config;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.HashMap;
@@ -20,6 +22,10 @@ public class MerchantCountryProperties {
      */
     private Map<String, String> countries = new HashMap<>();
 
+    @Valid
+    @NotNull
+    private MerchantRoutingRules routingRules = new MerchantRoutingRules();
+
     public String getDefaultCountry() {
         return defaultCountry;
     }
@@ -34,6 +40,14 @@ public class MerchantCountryProperties {
 
     public void setCountries(Map<String, String> countries) {
         this.countries = countries != null ? countries : new HashMap<>();
+    }
+
+    public MerchantRoutingRules getRoutingRules() {
+        return routingRules;
+    }
+
+    public void setRoutingRules(MerchantRoutingRules routingRules) {
+        this.routingRules = routingRules != null ? routingRules : new MerchantRoutingRules();
     }
 
     public String resolve(UUID merchantId) {

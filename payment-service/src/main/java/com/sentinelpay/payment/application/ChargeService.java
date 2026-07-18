@@ -7,7 +7,12 @@ import com.sentinelpay.payment.application.model.DecisionResult;
 import com.sentinelpay.payment.application.model.ProviderOutcome;
 import com.sentinelpay.payment.application.model.ProviderOutcome.Outcome;
 import com.sentinelpay.payment.application.port.PaymentProvider;
+import com.sentinelpay.payment.application.port.ProviderBanditStore;
+import com.sentinelpay.payment.application.port.ProviderCircuitBreakers;
+import com.sentinelpay.payment.application.port.ProviderHealthStore;
 import com.sentinelpay.payment.application.port.RiskEvaluator;
+import com.sentinelpay.payment.application.routing.RoutingContext;
+import com.sentinelpay.payment.application.routing.RoutingDecision;
 import com.sentinelpay.payment.domain.PaymentStatus;
 import com.sentinelpay.payment.domain.Provider;
 import com.sentinelpay.payment.infrastructure.metrics.ChargeMetrics;
@@ -27,19 +32,28 @@ public class ChargeService {
     private final ProviderRouting providerRouting;
     private final Map<Provider, PaymentProvider> providers;
     private final ChargeMetrics chargeMetrics;
+    private final ProviderHealthStore providerHealthStore;
+    private final ProviderCircuitBreakers providerCircuitBreakers;
+    private final ProviderBanditStore providerBanditStore;
 
     public ChargeService(
             PaymentTransactionService paymentTransactionService,
             RiskEvaluator riskEvaluator,
             ProviderRouting providerRouting,
             List<PaymentProvider> paymentProviders,
-            ChargeMetrics chargeMetrics) {
+            ChargeMetrics chargeMetrics,
+            ProviderHealthStore providerHealthStore,
+            ProviderCircuitBreakers providerCircuitBreakers,
+            ProviderBanditStore providerBanditStore) {
         this.paymentTransactionService = paymentTransactionService;
         this.riskEvaluator = riskEvaluator;
         this.providerRouting = providerRouting;
         this.providers = paymentProviders.stream()
                 .collect(Collectors.toMap(PaymentProvider::id, Function.identity()));
         this.chargeMetrics = chargeMetrics;
+        this.providerHealthStore = providerHealthStore;
+        this.providerCircuitBreakers = providerCircuitBreakers;
+        this.providerBanditStore = providerBanditStore;
     }
 
     public ChargeResult charge(ChargeCommand command) {
@@ -73,8 +87,13 @@ public class ChargeService {
             return decision.terminalResult();
         }
 
+        RoutingContext routingContext = new RoutingContext(
+                paymentId, command.merchantId(), command.amountCents(), command.currency());
+        RoutingDecision routingDecision = providerRouting.decide(routingContext);
+        paymentTransactionService.persistRoutingDecision(paymentId, routingDecision);
+
         short attemptNumber = 0;
-        for (Provider providerSlot : providerRouting.ordered()) {
+        for (Provider providerSlot : routingDecision.orderedProviders()) {
             attemptNumber++;
             PaymentProvider provider = providers.get(providerSlot);
             if (provider == null) {
@@ -85,22 +104,31 @@ public class ChargeService {
             paymentTransactionService.startAttempt(paymentId, providerSlot, attemptNumber, downstreamKey);
 
             boolean reconciledFromAmbiguous = false;
-            ProviderOutcome authorizeOutcome = chargeMetrics.recordProviderCall(
+            ChargeMetrics.TimedResult<ProviderOutcome> authorizeTimed = chargeMetrics.recordProviderCallTimed(
                     providerSlot, "authorize", () -> provider.authorize(new PaymentProvider.AuthorizeRequest(
                             paymentId, downstreamKey, command.amountCents(), command.currency())));
+            ProviderOutcome authorizeOutcome = authorizeTimed.value();
 
             Outcome outcome = authorizeOutcome.outcome();
             String providerRef = authorizeOutcome.providerRef();
             if (outcome == Outcome.AMBIGUOUS_TIMEOUT) {
-                ProviderOutcome reconciled = chargeMetrics.recordProviderCall(
+                ChargeMetrics.TimedResult<ProviderOutcome> reconciledTimed = chargeMetrics.recordProviderCallTimed(
                         providerSlot, "reconcile", () -> provider.reconcile(downstreamKey));
+                ProviderOutcome reconciled = reconciledTimed.value();
                 outcome = reconciled.outcome();
                 providerRef = reconciled.providerRef();
                 reconciledFromAmbiguous = true;
-                chargeMetrics.recordProviderAuthorization(providerSlot, outcome.name());
+                // Ambiguous timeout consumes provider budget — always counts as failure for routing health.
+                providerHealthStore.recordOutcome(
+                        providerSlot, false, authorizeTimed.elapsedMs() + reconciledTimed.elapsedMs());
+                providerCircuitBreakers.recordOutcome(
+                        providerSlot, false, authorizeTimed.elapsedMs() + reconciledTimed.elapsedMs());
+                providerBanditStore.recordOutcome(providerSlot, false);
             } else {
-                chargeMetrics.recordProviderAuthorization(providerSlot, outcome.name());
+                recordProviderSignals(providerSlot, outcome, authorizeTimed.elapsedMs());
             }
+
+            chargeMetrics.recordProviderAuthorization(providerSlot, outcome.name());
 
             switch (outcome) {
                 case AUTHORIZED -> {
@@ -127,6 +155,13 @@ public class ChargeService {
         }
 
         return paymentTransactionService.failPayment(paymentId, "all_providers_exhausted", command);
+    }
+
+    private void recordProviderSignals(Provider provider, Outcome outcome, long elapsedMs) {
+        boolean success = outcome == Outcome.AUTHORIZED;
+        providerHealthStore.recordOutcome(provider, success, elapsedMs);
+        providerCircuitBreakers.recordOutcome(provider, success, elapsedMs);
+        providerBanditStore.recordOutcome(provider, success);
     }
 
     private static Outcome persistableAttemptOutcome(Outcome outcome) {

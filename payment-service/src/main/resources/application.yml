@@ -20,6 +20,10 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
     template:
@@ -64,6 +68,8 @@ sentinelpay:
     # Server-sourced merchant country for risk scoring (not client-attested).
     default-country: ${MERCHANT_DEFAULT_COUNTRY:US}
     countries: {}
+    routing-rules:
+      merchants: {}
   risk:
     grpc:
       # 100 ms deadline per call; GrpcRiskEvaluator retries once on UNAVAILABLE/DEADLINE_EXCEEDED (~200 ms worst case).
@@ -87,5 +93,37 @@ sentinelpay:
       api-key: ${STRIPE_API_KEY:sk_test_placeholder}
       base-url: ${STRIPE_BASE_URL:https://api.stripe.com}
       webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_test_placeholder}
+  routing:
+    enabled: true
+    policy: ${ROUTING_POLICY:scored}
+    health-window-minutes: 5
+    latency-ceiling-ms: 2000
+    latency-ewma-alpha: 0.3
+    scored:
+      weight-success: 0.7
+      weight-latency: 0.3
+      cost-tiebreak-epsilon: 0.05
+    bandit:
+      decay-half-life-minutes: 30
+      cost-weight: 0.1
+    breaker:
+      enabled: ${ROUTING_BREAKER_ENABLED:false}
+      sliding-window-size: 20
+      failure-rate-threshold: 50
+      wait-duration-open-ms: 30000
+      permitted-calls-half-open: 3
+      minimum-number-of-calls: 10
+    split: {}
+    providers:
+      mockpay:
+        enabled: true
+        fee-bps: 150
+        fee-fixed-cents: 10
+        currencies: [USD]
+      stripe:
+        enabled: true
+        fee-bps: 290
+        fee-fixed-cents: 30
+        currencies: [USD]
   security:
     gateway-secret: ${GATEWAY_SHARED_SECRET:change-me-gateway-secret}

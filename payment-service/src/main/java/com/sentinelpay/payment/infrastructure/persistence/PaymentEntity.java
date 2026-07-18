@@ -59,6 +59,10 @@ public class PaymentEntity {
     @Column(name = "failure_reason")
     private String failureReason;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "routing_decision")
+    private String routingDecisionJson;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -156,6 +160,14 @@ public class PaymentEntity {
 
     public void setFailureReason(String failureReason) {
         this.failureReason = failureReason;
+    }
+
+    public String getRoutingDecisionJson() {
+        return routingDecisionJson;
+    }
+
+    public void setRoutingDecisionJson(String routingDecisionJson) {
+        this.routingDecisionJson = routingDecisionJson;
     }
 
     public long getVersion() {

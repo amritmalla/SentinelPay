@@ -66,5 +66,63 @@ if (-not $blocked) { throw "Expected BLOCKED by charge 6" }
 $blockedTrail = Invoke-RestMethod -Uri "$BaseUrl/api/v1/payments/$($blocked.payment_id)/trail" -Headers @{ Authorization = "Bearer $OpsToken" }
 Write-Host "   Blocked trail (card_country=GB vs merchant default US):"; $blockedTrail | ConvertTo-Json -Depth 6
 
-Write-Host "`n▶ Where to look: Grafana http://localhost:3000 | Tempo demo-corr-happy | MailHog http://localhost:8025"
-Write-Host "✓ Demo complete."
+Write-Host "`n▶ Act 4 — Adaptive routing: MockPay degrades, the bandit shifts traffic to Stripe…"
+Invoke-Json POST "$BaseUrl/dev/providers/mockpay/program" @{ outcomes = @("HARD_FAIL") } $null | Out-Null
+# Let the bandit observe a few MockPay failures (each fails over to Stripe and completes).
+1..5 | ForEach-Object {
+    try {
+        Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
+            amount_cents = 2500; currency = "USD"; customer_email = "buyer@example.com"
+        } @{ Authorization = "Bearer $Token"; "Idempotency-Key" = "demo-route-seed-$_"; "X-Correlation-Id" = "demo-corr-routing" } | Out-Null
+    } catch { }
+}
+# Thompson sampling is stochastic per charge, so demonstrate the aggregate shift over a batch.
+$stripeFirst = 0
+$lastRouteId = $null
+1..12 | ForEach-Object {
+    try {
+        $resp = Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
+            amount_cents = 2500; currency = "USD"; customer_email = "buyer@example.com"
+        } @{ Authorization = "Bearer $Token"; "Idempotency-Key" = "demo-route-batch-$_"; "X-Correlation-Id" = "demo-corr-routing" }
+        $lastRouteId = $resp.payment_id
+        $trail = Invoke-RestMethod -Uri "$BaseUrl/api/v1/payments/$($resp.payment_id)/trail" -Headers @{ Authorization = "Bearer $OpsToken" }
+        if ($trail.routing.ordered_providers[0] -eq "stripe") { $stripeFirst++ }
+    } catch { }
+}
+Write-Host "   $stripeFirst/12 charges routed Stripe-first after MockPay degraded"
+if ($stripeFirst -lt 8) { throw "Expected the bandit to route Stripe-first for most charges, got $stripeFirst/12" }
+$routeTrail = Invoke-RestMethod -Uri "$BaseUrl/api/v1/payments/$lastRouteId/trail" -Headers @{ Authorization = "Bearer $OpsToken" }
+$routeTrail.routing | ConvertTo-Json -Depth 8
+# Deterministic proof the bandit learned: MockPay's posterior mean sits below Stripe's.
+$mpMean = [double]$routeTrail.routing.providers.mockpay.bandit.posterior_mean
+$stMean = [double]$routeTrail.routing.providers.stripe.bandit.posterior_mean
+if (-not ($mpMean -lt $stMean)) { throw "Expected MockPay posterior mean ($mpMean) < Stripe ($stMean)" }
+Write-Host "   Bandit posteriors — MockPay mean=$mpMean < Stripe mean=$stMean (learned MockPay is degraded)"
+Write-Host "   Note: under the bandit the breaker rarely trips — the bandit demotes MockPay before its"
+Write-Host "         failure window fills. The deterministic breaker->OPEN proof lives in RoutingShiftIT."
+Write-Host "   Grafana → Provider Health: Stripe first-choice share up, MockPay posterior down`n"
+
+Write-Host "▶ Act 5 — Recovery: MockPay healthy again, the bandit re-explores and re-learns…"
+Invoke-Json POST "$BaseUrl/dev/providers/mockpay/program" @{ outcomes = @("AUTHORIZED") } $null | Out-Null
+# Thompson sampling keeps probing the demoted provider; each success rebuilds its posterior.
+1..15 | ForEach-Object {
+    try {
+        Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
+            amount_cents = 2500; currency = "USD"; customer_email = "buyer@example.com"
+        } @{ Authorization = "Bearer $Token"; "Idempotency-Key" = "demo-recovery-$_"; "X-Correlation-Id" = "demo-corr-recovery" } | Out-Null
+    } catch { }
+}
+$recovery = Invoke-Json POST "$BaseUrl/api/v1/payments/charge" @{
+    amount_cents = 2500; currency = "USD"; customer_email = "buyer@example.com"
+} @{
+    Authorization = "Bearer $Token"; "Idempotency-Key" = "demo-recovery-final"; "X-Correlation-Id" = "demo-corr-recovery-final"
+}
+Write-Host "   Recovery trail (MockPay bandit posterior climbing as probes succeed):"
+$recTrail = Invoke-RestMethod -Uri "$BaseUrl/api/v1/payments/$($recovery.payment_id)/trail" -Headers @{ Authorization = "Bearer $OpsToken" }
+$recTrail.routing.providers.mockpay.bandit | ConvertTo-Json
+$recTrail.routing.providers.stripe.bandit | ConvertTo-Json
+Write-Host "   Explore/exploit: Thompson sampling keeps probing recovered MockPay instead of waiting"
+Write-Host "     for a fixed window to age out — its success count (alpha) climbs back over time."
+
+Write-Host "`n▶ Where to look: Grafana http://localhost:3000 (Provider Health) | Tempo demo-corr-happy | MailHog http://localhost:8025"
+Write-Host "✓ Demo complete — happy path, failover, risk block, adaptive routing shift, and bandit recovery observed."
