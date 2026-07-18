@@ -63,9 +63,9 @@ abstract class StatefulProviderAdapter implements PaymentProvider, ProviderCount
     }
 
     @Override
-    public ProviderOutcome reconcile(String downstreamKey) {
+    public ProviderOutcome reconcile(ReconcileRequest request) {
         long start = System.nanoTime();
-        String ref = authStore.get(downstreamKey);
+        String ref = authStore.get(request.downstreamKey());
         if (ref != null) {
             return authorized(ref, start);
         }

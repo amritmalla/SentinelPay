@@ -82,7 +82,7 @@ Business outcomes (`BLOCKED`, `IN_REVIEW`, `FAILED`) are **payment states**, not
 
 - Public + ops endpoints require `bearerAuth` (JWT, HS256) validated at the API Gateway; identity propagated downstream via `X-User-Id`/`X-Correlation-Id`.
 - Authorization: merchants are scoped to their own payments; ops endpoints (`fraud-assessments`, `providers/health`, `reconciliation-runs`) require an ops role.
-- `POST /webhooks/stripe` is `security: []` (provider-signed). **Signature verification is deferred in v1** (PRD non-goal) — flagged for the security review before any real-money path.
+- `POST /webhooks/stripe` is `security: []` (provider-signed). **Signature verification is implemented** in `WebhookService` via `Webhook.constructEvent`; invalid signatures return `invalid_webhook_signature`.
 - No credentials in query strings. No PAN handled (Stripe test tokens). Provider API keys are secrets.
 
 ## Rate Limiting

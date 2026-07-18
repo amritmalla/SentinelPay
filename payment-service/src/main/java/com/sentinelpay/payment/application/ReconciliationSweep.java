@@ -88,8 +88,13 @@ public class ReconciliationSweep {
             return;
         }
 
-        var reconciled = paymentProvider.reconcile(latestStarted.getDownstreamKey());
         ChargeCommand command = chargeCommandFor(paymentId);
+
+        var reconciled = paymentProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                paymentId,
+                latestStarted.getDownstreamKey(),
+                command.amountCents(),
+                command.currency()));
 
         if (reconciled.outcome() == Outcome.AUTHORIZED) {
             var capture = paymentProvider.capture(reconciled.providerRef());

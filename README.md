@@ -258,6 +258,7 @@ sequenceDiagram
 | Smart routing | Four-stage pipeline; Redis health + bandit posteriors; trail rationale | [0013](docs/architecture/adrs/0013-smart-routing-model-and-health-state.md) |
 | Circuit breaking | Resilience4j per provider; never-strand guardrail | [0014](docs/architecture/adrs/0014-circuit-breaking-resilience4j.md) |
 | Adaptive routing | Thompson sampling bandit; seeded replay | [0015](docs/architecture/adrs/0015-adaptive-routing-bandit.md) |
+| Reconcile safety | Conservative reconcile; idempotent Stripe replay | [0016](docs/architecture/adrs/0016-conservative-reconcile-semantics.md) |
 
 
 ## Using the API
@@ -302,6 +303,20 @@ Repeating the same `Idempotency-Key` returns the original result instead of char
 | `POST` | `/api/v1/webhooks/stripe` | none | Inbound Stripe webhook |
 
 The OpenAPI contract also reserves two ops endpoints — `GET /api/v1/providers/health` and `POST /api/v1/reconciliation-runs` — that are **contract-only in this build** (reconciliation currently runs as a scheduled sweep, not an on-demand endpoint; provider health is exposed via metrics, see [Observability](#observability)).
+
+## Running against real Stripe (test mode)
+
+Default demo and CI use `sentinelpay.providers.stripe.mode=stub` (hermetic). To exercise the real `StripeProvider` adapter against Stripe **test mode**:
+
+1. Copy [`.env.example`](.env.example) → `.env` and set `STRIPE_API_KEY=sk_test_…` (never commit `.env`; rotate if exposed).
+2. Quick API smoke: `./scripts/stripe-smoke.sh` (create → capture → refund via Stripe API).
+3. Full stack with real adapter:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.stripe.yml up --build
+   ```
+4. Webhooks: `stripe listen --forward-to localhost:8080/api/v1/webhooks/stripe` — put the CLI signing secret in `STRIPE_WEBHOOK_SECRET`. Signature verification is already implemented in `WebhookService`.
+
+Use **test-mode keys only** (`sk_test_…` / `pk_test_…`). Live keys are out of scope.
 
 ## Observability
 
