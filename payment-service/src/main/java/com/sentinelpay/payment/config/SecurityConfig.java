@@ -27,7 +27,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/payments/*/trail").hasAuthority("OPS")
-                        .requestMatchers("/api/v1/payments/**").hasAuthority("MERCHANT")
+                        .requestMatchers("/api/v1/ops/**").hasAuthority("OPS")
+                        // OPS is a superset of MERCHANT for reads (see gateway SecurityConfig); the
+                        // trail matcher above remains OPS-only so MERCHANT is still denied there.
+                        .requestMatchers("/api/v1/payments/**").hasAnyAuthority("MERCHANT", "OPS")
                         .requestMatchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
                         .requestMatchers(EndpointRequest.toAnyEndpoint()).authenticated()
                         .anyRequest().denyAll())

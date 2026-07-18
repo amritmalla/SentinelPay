@@ -59,3 +59,20 @@ jobs:
           uv run mypy
           uv run pytest
           uv run python -m riskmodel.train --smoke --seed 1
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install, lint, typecheck, test, build
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build

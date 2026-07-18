@@ -124,5 +124,11 @@ $recTrail.routing.providers.stripe.bandit | ConvertTo-Json
 Write-Host "   Explore/exploit: Thompson sampling keeps probing recovered MockPay instead of waiting"
 Write-Host "     for a fixed window to age out — its success count (alpha) climbs back over time."
 
-Write-Host "`n▶ Where to look: Grafana http://localhost:3000 (Provider Health) | Tempo demo-corr-happy | MailHog http://localhost:8025"
+Write-Host "`n▶ Where to look: Dashboard http://localhost:5173"
+Write-Host "   Paste this merchant id at login (the demo uses a fresh one each run, so the"
+Write-Host "   pre-filled default will show an empty list):"
+Write-Host "     $MerchantId"
+Write-Host "   Log in as OPS for the full trail + routing; MERCHANT sees the redacted summary."
+Write-Host "   Pin the id with `$env:MERCHANT_ID=... to reuse it."
+Write-Host "   Grafana http://localhost:3000 (Provider Health) | Tempo demo-corr-happy | MailHog http://localhost:8025"
 Write-Host "✓ Demo complete — happy path, failover, risk block, adaptive routing shift, and bandit recovery observed."

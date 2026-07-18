@@ -20,9 +20,17 @@ public final class GatewayTestAuth {
     }
 
     public static MockHttpServletRequestBuilder asOps(MockHttpServletRequestBuilder builder) {
+        return asOps(builder, UUID.randomUUID());
+    }
+
+    /**
+     * OPS scoped to a specific merchant. OPS is not cross-merchant: reads are still scoped by the
+     * gateway-injected merchant id, so tests that fetch a seeded payment must pass its owner.
+     */
+    public static MockHttpServletRequestBuilder asOps(MockHttpServletRequestBuilder builder, UUID merchantId) {
         return builder
                 .header(GatewayHeaders.GATEWAY_SECRET, SECRET)
-                .header(GatewayHeaders.MERCHANT_ID, UUID.randomUUID().toString())
+                .header(GatewayHeaders.MERCHANT_ID, merchantId.toString())
                 .header(GatewayHeaders.AUTH_ROLE, "OPS");
     }
 

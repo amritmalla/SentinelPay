@@ -58,15 +58,27 @@ public class SecurityConfig {
 
         http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                // CORS must be handled here, not via spring.cloud.gateway.globalcors: the security
+                // filter chain runs before gateway routing, and a browser preflight carries no
+                // Authorization header, so it would be rejected (401/403) before any gateway-level
+                // CORS config applied — surfacing in the browser as "Failed to fetch". Spring
+                // Security's CORS filter answers the preflight and short-circuits authorization.
+                // The CorsConfigurationSource bean is dev-profile only, so prod behaviour is unchanged.
+                .cors(withDefaults())
                 .authorizeExchange(ex -> ex
                         .pathMatchers("/api/v1/webhooks/**").permitAll()
                         .pathMatchers(
                                 "/api/v1/payments/*/trail",
                                 "/api/v1/fraud-assessments/**",
                                 "/api/v1/providers/**",
-                                "/api/v1/reconciliation-runs/**")
+                                "/api/v1/reconciliation-runs/**",
+                                "/api/v1/ops/**")
                         .hasAuthority("OPS")
-                        .pathMatchers("/api/v1/payments/**").hasAuthority("MERCHANT")
+                        // OPS is a superset of MERCHANT for reads: an operator who can already see
+                        // the full decision trail (routing rationale, risk internals) must also be
+                        // able to list and open the payment it belongs to. The trail matcher above
+                        // stays OPS-only, so MERCHANT is still denied there.
+                        .pathMatchers("/api/v1/payments/**").hasAnyAuthority("MERCHANT", "OPS")
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(jwtConverter)));
         return http.build();

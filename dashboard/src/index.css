@@ -1,0 +1,144 @@
+:root {
+  color: #e8edf5;
+  background: #0f1419;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: #7cc4ff;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #243041;
+  background: #151b24;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.app-header button {
+  background: transparent;
+  border: 1px solid #3a4a61;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+main {
+  padding: 1.5rem;
+}
+
+.panel {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: #151b24;
+  border: 1px solid #243041;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.login-panel {
+  max-width: 420px;
+  margin-top: 4rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+input,
+select,
+button[type="submit"] {
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #3a4a61;
+  background: #0f1419;
+  color: inherit;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid #243041;
+}
+
+.muted {
+  color: #9aa8bc;
+}
+
+.error {
+  color: #ff8f8f;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0.5rem 1rem;
+}
+
+dt {
+  color: #9aa8bc;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: #243041;
+}
+
+.badge-success {
+  background: #1f4d37;
+}
+
+.badge-warning {
+  background: #5c4a16;
+}
+
+.badge-danger {
+  background: #5c2020;
+}
+
+pre {
+  overflow: auto;
+  background: #0f1419;
+  padding: 0.75rem;
+  border-radius: 8px;
+}
