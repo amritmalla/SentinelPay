@@ -20,6 +20,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,8 +134,14 @@ class GrpcRiskEvaluatorIT {
 
     @Test
     @Order(4)
-    void evaluate_serverDown_returnsAmountBasedFallback() {
+    void evaluate_serverDown_returnsAmountBasedFallback() throws InterruptedException {
+        // shutdownNow() is asynchronous: it initiates termination and returns immediately, so a call
+        // issued right after can still be served by the not-yet-terminated server (fallbackUsed=false).
+        // Await termination so "server is down" is an established precondition, not a race.
         server.shutdownNow();
+        assertThat(server.awaitTermination(10, TimeUnit.SECONDS))
+                .as("test gRPC server should terminate before asserting the fallback path")
+                .isTrue();
 
         RiskEvaluator.RiskDecision lowAmount = evaluator.evaluate(riskInput(2_500));
         assertThat(lowAmount.fallbackUsed()).isTrue();

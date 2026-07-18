@@ -93,6 +93,10 @@ sentinelpay:
       api-key: ${STRIPE_API_KEY:sk_test_placeholder}
       base-url: ${STRIPE_BASE_URL:https://api.stripe.com}
       webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_test_placeholder}
+      # Test-mode payment instrument. The charge API carries no payment method (PCI scope stays
+      # out of the platform), so mode=real confirms against this. Production would take a
+      # merchant-supplied payment-method token on the charge request instead.
+      payment-method: ${STRIPE_PAYMENT_METHOD:pm_card_visa}
   routing:
     enabled: true
     policy: ${ROUTING_POLICY:scored}

@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
@@ -155,5 +156,113 @@ class StripeProviderWireMockIT {
                 UUID.randomUUID(), "rate-limit-key", 2_500, "USD"));
 
         assertThat(outcome.outcome()).isEqualTo(Outcome.RETRYABLE);
+    }
+
+    @Test
+    void reconcile_idempotentReplay_sendsOriginalAmountAndReturnsAuthorized() {
+        UUID paymentId = UUID.randomUUID();
+        String downstreamKey = "reconcile-" + UUID.randomUUID();
+        wireMock.stubFor(post(urlEqualTo("/v1/payment_intents"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "id": "pi_reconcile_ok",
+                                  "object": "payment_intent",
+                                  "status": "requires_capture"
+                                }
+                                """)));
+
+        ProviderOutcome outcome = stripeProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                paymentId, downstreamKey, 2_500, "USD"));
+
+        assertThat(outcome.outcome()).isEqualTo(Outcome.AUTHORIZED);
+        assertThat(outcome.providerRef()).isEqualTo("pi_reconcile_ok");
+        wireMock.verify(postRequestedFor(urlEqualTo("/v1/payment_intents"))
+                .withHeader("Idempotency-Key", equalTo(downstreamKey))
+                .withRequestBody(matching("(?s).*amount=2500.*")));
+    }
+
+    @Test
+    void reconcile_processing_returnsAmbiguousTimeout() {
+        wireMock.stubFor(post(urlEqualTo("/v1/payment_intents"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "id": "pi_processing",
+                                  "object": "payment_intent",
+                                  "status": "processing"
+                                }
+                                """)));
+
+        ProviderOutcome outcome = stripeProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                UUID.randomUUID(), "processing-key", 2_500, "USD"));
+
+        assertThat(outcome.outcome()).isEqualTo(Outcome.AMBIGUOUS_TIMEOUT);
+    }
+
+    @Test
+    void reconcile_canceled_returnsNotAuthorized() {
+        wireMock.stubFor(post(urlEqualTo("/v1/payment_intents"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "id": "pi_canceled",
+                                  "object": "payment_intent",
+                                  "status": "canceled"
+                                }
+                                """)));
+
+        ProviderOutcome outcome = stripeProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                UUID.randomUUID(), "canceled-key", 2_500, "USD"));
+
+        assertThat(outcome.outcome()).isEqualTo(Outcome.NOT_AUTHORIZED);
+    }
+
+    @Test
+    void reconcile_idempotencyError_returnsAmbiguousTimeout() {
+        wireMock.stubFor(post(urlEqualTo("/v1/payment_intents"))
+                .willReturn(aResponse()
+                        .withStatus(400)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "error": {
+                                    "type": "idempotency_error",
+                                    "message": "Keys for idempotent requests can only be used with the same parameters"
+                                  }
+                                }
+                                """)));
+
+        ProviderOutcome outcome = stripeProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                UUID.randomUUID(), "idem-error-key", 2_500, "USD"));
+
+        assertThat(outcome.outcome()).isEqualTo(Outcome.AMBIGUOUS_TIMEOUT);
+    }
+
+    @Test
+    void reconcile_serverError_returnsAmbiguousTimeout() {
+        wireMock.stubFor(post(urlEqualTo("/v1/payment_intents"))
+                .willReturn(aResponse()
+                        .withStatus(500)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "error": {
+                                    "type": "api_error",
+                                    "message": "Internal error"
+                                  }
+                                }
+                                """)));
+
+        ProviderOutcome outcome = stripeProvider.reconcile(new PaymentProvider.ReconcileRequest(
+                UUID.randomUUID(), "server-error-key", 2_500, "USD"));
+
+        assertThat(outcome.outcome()).isEqualTo(Outcome.AMBIGUOUS_TIMEOUT);
     }
 }

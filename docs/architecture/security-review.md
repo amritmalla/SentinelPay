@@ -76,7 +76,7 @@ are not logged. Grep of the codebase confirms no logging of secret values.
 
 ## Closed in Phase 5 (previously deferred)
 
-- Stripe webhook **signature verification** (was open since Phase 4b).
+- Stripe webhook **signature verification** is implemented (`WebhookService` + `StripeWebhookControllerIT`).
 
 ## Still deferred
 

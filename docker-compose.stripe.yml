@@ -1,0 +1,8 @@
+# Local-only Stripe test-mode overrides. Requires `.env` with sk_test_… keys.
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.stripe.yml up --build payment-service
+services:
+  payment-service:
+    environment:
+      STRIPE_API_KEY: ${STRIPE_API_KEY}
+      STRIPE_MODE: real
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_placeholder}

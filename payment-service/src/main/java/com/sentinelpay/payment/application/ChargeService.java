@@ -113,7 +113,10 @@ public class ChargeService {
             String providerRef = authorizeOutcome.providerRef();
             if (outcome == Outcome.AMBIGUOUS_TIMEOUT) {
                 ChargeMetrics.TimedResult<ProviderOutcome> reconciledTimed = chargeMetrics.recordProviderCallTimed(
-                        providerSlot, "reconcile", () -> provider.reconcile(downstreamKey));
+                        providerSlot,
+                        "reconcile",
+                        () -> provider.reconcile(new PaymentProvider.ReconcileRequest(
+                                paymentId, downstreamKey, command.amountCents(), command.currency())));
                 ProviderOutcome reconciled = reconciledTimed.value();
                 outcome = reconciled.outcome();
                 providerRef = reconciled.providerRef();

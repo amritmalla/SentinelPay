@@ -49,7 +49,7 @@ class MockPayProviderTest {
         ProviderOutcome authorize = provider.authorize(request("key-ambig"));
         assertThat(authorize.outcome()).isEqualTo(Outcome.AMBIGUOUS_TIMEOUT);
 
-        ProviderOutcome reconciled = provider.reconcile("key-ambig");
+        ProviderOutcome reconciled = provider.reconcile(reconcileRequest("key-ambig"));
         assertThat(reconciled.outcome()).isEqualTo(Outcome.AUTHORIZED);
         assertThat(reconciled.providerRef()).isNotNull();
         assertThat(provider.authorizationCount()).isEqualTo(1);
@@ -62,7 +62,7 @@ class MockPayProviderTest {
         ProviderOutcome authorize = provider.authorize(request("key-fail"));
         assertThat(authorize.outcome()).isEqualTo(Outcome.HARD_FAIL);
 
-        ProviderOutcome reconciled = provider.reconcile("key-fail");
+        ProviderOutcome reconciled = provider.reconcile(reconcileRequest("key-fail"));
         assertThat(reconciled.outcome()).isEqualTo(Outcome.NOT_AUTHORIZED);
         assertThat(provider.authorizationCount()).isZero();
     }
@@ -72,7 +72,7 @@ class MockPayProviderTest {
         behavior.program(Provider.MOCKPAY, ProgrammedOutcome.ambiguousWithoutStore());
 
         provider.authorize(request("key-no-store"));
-        ProviderOutcome reconciled = provider.reconcile("key-no-store");
+        ProviderOutcome reconciled = provider.reconcile(reconcileRequest("key-no-store"));
 
         assertThat(reconciled.outcome()).isEqualTo(Outcome.NOT_AUTHORIZED);
         assertThat(provider.authorizationCount()).isZero();
@@ -104,5 +104,9 @@ class MockPayProviderTest {
 
     private static PaymentProvider.AuthorizeRequest request(String key) {
         return new PaymentProvider.AuthorizeRequest(UUID.randomUUID(), key, 1000, "USD");
+    }
+
+    private static PaymentProvider.ReconcileRequest reconcileRequest(String key) {
+        return new PaymentProvider.ReconcileRequest(UUID.randomUUID(), key, 1000, "USD");
     }
 }

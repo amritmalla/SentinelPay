@@ -36,7 +36,7 @@ This document covers the whole v1 backend (5 services) as one system, organized 
 
 - **Charge semantics:** v1 charge performs **authorize + immediate capture** in one synchronous call. *Recommended* for v1 simplicity; separate `authorize`/`capture` lifecycle deferred. Owner: self.
 - **REVIEW handling:** a risk `REVIEW` recommendation **holds** the payment (`IN_REVIEW`, no capture) with **no manual-approve workflow** in v1. *Recommended*; manual review is a future Risk-Analyst capability. Owner: self.
-- **Stripe webhook signature verification:** recommended even in v1, but PRD lists it as deferred. Marked as a security deferral below. Owner: self.
+- **Stripe webhook signature verification:** implemented in payment-service (`WebhookService`); PRD “deferred” note is stale.
 
 ## Backend Boundary
 
