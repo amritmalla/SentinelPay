@@ -10,14 +10,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # The runner's Docker daemon requires API >= 1.40, but the docker-java client
-      # Testcontainers uses advertises 1.32 and is rejected ("client version 1.32 is
-      # too old"). It does not auto-negotiate here, so pin a modern API version the
-      # daemon accepts for the Testcontainers correctness-gate run.
-      DOCKER_API_VERSION: "1.43"
     steps:
       - uses: actions/checkout@v4
+      - name: Lower Docker daemon minimum API version for Testcontainers
+        # Docker Engine 28+ on the runner enforces a minimum API version of 1.40 and
+        # rejects the API 1.32 that Testcontainers' docker-java client negotiates on the
+        # unix socket ("client version 1.32 is too old"). The client can't be moved off
+        # 1.32 (DOCKER_API_VERSION is ignored on this path), so use Docker's supported
+        # escape hatch: lower the daemon's minimum back to 1.24 and restart it.
+        run: |
+          sudo mkdir -p /etc/systemd/system/docker.service.d
+          printf '[Service]\nEnvironment="DOCKER_MIN_API_VERSION=1.24"\n' \
+            | sudo tee /etc/systemd/system/docker.service.d/min-api-version.conf
+          sudo systemctl daemon-reload
+          sudo systemctl restart docker
+          docker version
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
