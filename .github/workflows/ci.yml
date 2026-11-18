@@ -10,6 +10,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The runner's Docker daemon requires API >= 1.40, but the docker-java client
+      # Testcontainers uses advertises 1.32 and is rejected ("client version 1.32 is
+      # too old"). It does not auto-negotiate here, so pin a modern API version the
+      # daemon accepts for the Testcontainers correctness-gate run.
+      DOCKER_API_VERSION: "1.43"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
