@@ -6,6 +6,7 @@
 
 Intelligent routing · Risk-aware decisions · Zero double-charge guarantee
 
+[![CI](https://img.shields.io/github/actions/workflow/status/amritmalla/SentinelPay/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/amritmalla/SentinelPay/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/stargazers)
 [![Forks](https://img.shields.io/github/forks/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/forks)
 [![Issues](https://img.shields.io/github/issues/amritmalla/SentinelPay?style=flat-square)](https://github.com/amritmalla/SentinelPay/issues)
